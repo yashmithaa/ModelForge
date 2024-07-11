@@ -1,0 +1,38 @@
+dataset:
+  path: "dataset.csv" 
+  format: csv 
+  delimiter: "," 
+
+input_features:
+  - name: text 
+    type: text 
+    encoder: nltk 
+    
+    dropout: true 
+    convolutional_layers:
+      - { filter_size: 3, num_filters: 256 } 
+      - { filter_size: 4, num_filters: 256 } 
+      - { filter_size: 5, num_filters: 256 } 
+
+output_features:
+  - name: sentiment 
+    type: category 
+    num_classes: 3 
+
+training:
+  batch_size: 32 
+  epochs: 10 
+  learning_rate: 0.001 
+  split:
+    train: 0.7
+    test: 0.2
+    validation: 0.1
+
+preprocessing:
+  text:
+    lower_case: true 
+    remove_punctuation: true 
+    remove_stopwords: true 
+    stemming: false 
+    tokenization: 
+      method: word 
