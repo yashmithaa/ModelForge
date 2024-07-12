@@ -6,7 +6,6 @@ from nltk.tokenize import word_tokenize
 from sklearn.model_selection import train_test_split
 import string
 
-
 # nltk.download('punkt')
 # nltk.download('stopwords')
 
@@ -24,7 +23,14 @@ class Loader:
         dataset_config = self.config['dataset']
         self.data = pd.read_csv(dataset_config['path'], delimiter=dataset_config['delimiter'])
         return self.data
+class DataCleaner:
+    def __init__(self, config):
+        self.config = config
 
+    def clean_data(self, data):
+        data.dropna(inplace=True)
+        data.drop_duplicates(inplace=True)
+        return data
 class TextPreprocessor:
     def __init__(self, config):
         self.config = config['preprocessing']['text']
@@ -90,6 +96,10 @@ def main():
     loader = Loader(config_path)
     config = loader.load_config(config_path)
     data = loader.load_dataset()
+
+    # clean the data
+    cleaner = DataCleaner(config)
+    data = cleaner.clean_data(data)
 
     # Preprocess data
     preprocessor = TextPreprocessor(config)
