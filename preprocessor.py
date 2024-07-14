@@ -12,6 +12,8 @@ from transformers import AutoTokenizer
 from transformers import TFAutoModelForSequenceClassification
 from scipy.special import softmax
 from tqdm import tqdm
+
+from sklearn.metrics import accuracy_score, precision_score, recall_score
 # nltk.download('punkt')
 # nltk.download('stopwords')
 
@@ -48,7 +50,6 @@ class TextPreprocessor:
             text = text.lower()
         if self.config.get('remove_punctuation'):
             text = text.translate(str.maketrans('', '', string.punctuation))
-        
         tokens = self.tokenize_text(text)
         if self.config.get('remove_stopwords'):
             stop_words = set(stopwords.words('english'))
@@ -133,9 +134,7 @@ class Model:
         for text, scores in results:
             table.add_row(text, f"{scores['roberta_neg']:.4f}", f"{scores['roberta_neu']:.4f}", f"{scores['roberta_pos']:.4f}")
         console = Console()
-        console.print(table) 
-  
-       
+        console.print(table)      
 
 def main():
     config_path = 'config.yaml'
@@ -152,12 +151,12 @@ def main():
     # Preprocess data
     preprocessor = TextPreprocessor(config)
     data = preprocessor.preprocess_dataset(data)
-    print(f"Preprocessed data looks like,\n{data.head(5)}")
+    print(f"Preprocessed data looks like,\n{data.head(5)}\n")
     # Split data
     splitter = DataSplitter(config)
     train_set, validation_set, test_set = splitter.split_data(data)
 
-    table = Table(title="Dataset")
+    table = Table(title=f"Dataset total{len(train_set)+len(validation_set)+len(test_set)}")
     table.add_column("Train set")
     table.add_column("Validation set")
     table.add_column("Test set")
@@ -168,6 +167,7 @@ def main():
     model = Model(config)
     results = model.roberta(test_set,num_samples=5)
     model.print_results(results)
+
 
 if __name__ == "__main__":
     main()
