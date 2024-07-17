@@ -14,12 +14,14 @@ output_features:
     num_classes: 3 
 
 training:
+
+
+preprocessing:
   split:
     train: 0.7
     test: 0.2
     validation: 0.1
-
-preprocessing:
+    random_seed: 42 
   text:
     lower_case: true 
     remove_punctuation: true 
