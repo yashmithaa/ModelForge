@@ -5,8 +5,14 @@ from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from sklearn.model_selection import train_test_split
 import string
+import numpy as np
+import json
+
 from rich.console import Console
 from rich.table import Table
+from rich.markdown import Markdown
+from rich.pretty import pprint
+import sys
 
 from transformers import AutoTokenizer
 from transformers import TFAutoModelForSequenceClassification
@@ -75,7 +81,7 @@ class TextPreprocessor:
 
 class DataSplitter:
     def __init__(self, config):
-        self.config = config['training']['split']
+        self.config = config['preprocessing']['split']
         self.train_data = None
         self.test_data = None
         self.validation_data = None
@@ -84,18 +90,33 @@ class DataSplitter:
         train_percent = self.config['train']
         test_percent = self.config['test']
         validation_percent = self.config['validation']
+        random_seed = self.config.get('random_seed', None)
 
         # Calculate the sizes for each split
         test_size = test_percent / (test_percent + validation_percent)
         validation_size = validation_percent / (test_percent + validation_percent)
 
+        # Shuffle the data
+        data = data.sample(frac=1, random_state=random_seed).reset_index(drop=True)
+
         # First split: into training and remaining data (test + validation)
-        self.train_data, remaining_data = train_test_split(data, test_size=(test_percent + validation_percent))
+        self.train_data, remaining_data = train_test_split(data, test_size=(test_percent + validation_percent), random_state=random_seed)
 
         # Second split: remaining data into test and validation sets
-        self.test_data, self.validation_data = train_test_split(remaining_data, test_size=test_size)
+        self.test_data, self.validation_data = train_test_split(remaining_data, test_size=test_size, random_state=random_seed)
+
+        self.save_hdf5()
 
         return self.train_data, self.test_data, self.validation_data
+    
+    def save_hdf5(self):
+        self.train_data.to_hdf(f'dataset.training.hdf5', key='train', mode='w')
+        print("\nWriting preprocessed training set cache to dataset.training.hdf5")
+        self.test_data.to_hdf(f'dataset.test.hdf5', key='test', mode='w')
+        print("Writing preprocessed test set cache to dataset.test.hdf5")
+        self.validation_data.to_hdf(f'dataset.validation.hdf5', key='validation', mode='w')
+        print("Writing preprocessed validation set cache to dataset.validation.hdf5\n")
+
     
 class Model:
     def __init__(self, config):
@@ -138,30 +159,41 @@ class Model:
 
 def main():
     config_path = 'config.yaml'
+    console = Console()
 
     # Load data and config
     loader = Loader(config_path)
     config = loader.load_config(config_path)
+    print("\nUser specified config file\n")
+    pprint(config)
+    
     data = loader.load_dataset()
 
     # clean the data
     cleaner = DataCleaner(config)
     data = cleaner.clean_data(data)
 
+    
+    md = Markdown('# Preprocessing')
+    console.print(md)
     # Preprocess data
     preprocessor = TextPreprocessor(config)
     data = preprocessor.preprocess_dataset(data)
-    print(f"Preprocessed data looks like,\n{data.head(5)}\n")
+    #print(f"Preprocessed data looks like,\n{data.head(5)}\n") #just to verify
+
     # Split data
     splitter = DataSplitter(config)
     train_set, validation_set, test_set = splitter.split_data(data)
 
-    table = Table(title=f"Dataset total{len(train_set)+len(validation_set)+len(test_set)}")
-    table.add_column("Train set")
-    table.add_column("Validation set")
-    table.add_column("Test set")
-    table.add_row(str(len(train_set)),str(len(validation_set)),str(len(test_set)))
-    console = Console()
+    table = Table(title=f"Dataset statistics\nTotal datset: {len(train_set)+len(validation_set)+len(test_set)}")
+    table.add_column("Dataset", style = "Cyan")
+    table.add_column("Size (in Rows)")
+    table.add_column("Size (in memeory)")
+    table.add_row("Train set", str(len(train_set)), f"{(sys.getsizeof(train_set) / (1024 * 1024)):.2f} Mb")
+    table.add_row("Validation set", str(len(validation_set)), f"{(sys.getsizeof(validation_set) / (1024 * 1024)):.2f} Mb")
+    table.add_row("Test set", str(len(test_set)), f"{(sys.getsizeof(test_set) / (1024 * 1024)):.2f} Mb")
+
+    
     console.print(table)
 
     model = Model(config)
