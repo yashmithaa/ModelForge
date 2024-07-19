@@ -144,6 +144,8 @@ class RNNEncoder(tf.keras.Model):
         self.weights_initializer = self.config['weights_initializer']
         self.unit_forget_bias = self.config['unit_forget_bias']
         self.reduce_output = self.config['reduce_output']
+        self.num_fc_layers = self.config['num_fc_layers']
+        self.norm = self.config['norm']
 
         # Embedding layer
         self.embedding = layers.Embedding(input_dim=vocab_size, output_dim=self.embedding_size)
@@ -176,14 +178,14 @@ class RNNEncoder(tf.keras.Model):
 
         # Fully connected layers
         self.fc_layers = []
-        if config['num_fc_layers'] > 0:
+        if self.num_fc_layers > 0:
             input_dim = self.hidden_size * (2 if self.bidirectional else 1)
-            for _ in range(config['num_fc_layers']):
+            for _ in range(self.num_fc_layers):
                 self.fc_layers.append(layers.Dense(self.output_size))
                 input_dim = self.output_size
 
         # Regularization
-        if config['norm']:
+        if self.norm:
             self.regularizer = layers.LayerNormalization()
         else:
             self.regularizer = None
@@ -191,7 +193,12 @@ class RNNEncoder(tf.keras.Model):
     def call(self, x):
         x = self.embedding(x)
         x = self.dropout(x)
-        output, state = self.rnn(x)
+        
+
+        if self.cell_type == 'lstm':
+            output, hidden_state, cell_state = self.rnn(x)
+        else:
+            output, hidden_state = self.rnn(x)
 
         # Apply representation type
         if self.representation == 'dense':
@@ -284,8 +291,10 @@ def main():
     # Preprocess data
     preprocessor = TextPreprocessor(config)
     data = preprocessor.preprocess_dataset(data)
+
+    text_data = data['text']
     vectorizer = TextVectorization(max_tokens=None, output_mode='int')
-    vectorizer.adapt(data)
+    vectorizer.adapt(text_data)
     vocab_size = len(vectorizer.get_vocabulary())
     #print(f"Preprocessed data looks like,\n{data.head(5)}\n") #just to verify
 
@@ -308,11 +317,11 @@ def main():
     results = model.roberta(test_set, num_samples=5)
     model.print_results(results)"""
 
-    encoder_config = config['model']  # Extract the model section
-    rnn_encoder = RNNEncoder(encoder_config, vocab_size)
+    
+    rnn_encoder = RNNEncoder(config, vocab_size)
 
     # Example input data (replace with your actual input data)
-    example_data = tf.random.uniform((32, 10), dtype=tf.int32)  # Example shape (batch_size, sequence_length)
+    example_data = tf.random.uniform((32, 10), dtype=tf.int32, maxval=vocab_size)  # Example shape (batch_size, sequence_length)
 
     # Encode the data
     encoded_data = rnn_encoder.encode_data(example_data)
