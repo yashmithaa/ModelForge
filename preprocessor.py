@@ -111,11 +111,11 @@ class DataSplitter:
     
     def save_hdf5(self):
         self.train_data.to_hdf(f'dataset.training.hdf5', key='train', mode='w')
-        print("\nWriting preprocessed training set cache to dataset.training.hdf5")
+        print("\nWriting preprocessed training set to dataset.training.hdf5")
         self.test_data.to_hdf(f'dataset.test.hdf5', key='test', mode='w')
-        print("Writing preprocessed test set cache to dataset.test.hdf5")
+        print("Writing preprocessed test set to dataset.test.hdf5")
         self.validation_data.to_hdf(f'dataset.validation.hdf5', key='validation', mode='w')
-        print("Writing preprocessed validation set cache to dataset.validation.hdf5\n")
+        print("Writing preprocessed validation set to dataset.validation.hdf5\n")
 
     
 class Model:
