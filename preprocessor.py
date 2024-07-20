@@ -24,6 +24,8 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from sklearn.preprocessing import OneHotEncoder, StandardScaler, LabelEncoder, MinMaxScaler
 # nltk.download('punkt')
 # nltk.download('stopwords')
 
@@ -173,6 +175,63 @@ class StackedCNN(nn.Module):
         x = self.output_layer(x)
         return x
 
+class CategoricalEncoder:
+    def _init_(self, encoding_type='onehot'):
+        if encoding_type not in ['onehot', 'label']:
+            raise ValueError("encoding_type should be either 'onehot' or 'label'")
+        self.encoding_type = encoding_type
+        self.encoder = None
+    
+    def fit(self, X):
+        if self.encoding_type == 'onehot':
+            self.encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
+            self.encoder.fit(X)
+        elif self.encoding_type == 'label':
+            self.encoder = {}
+            for column in X.columns:
+                le = LabelEncoder()
+                le.fit(X[column])
+                self.encoder[column] = le
+    
+    def transform(self, X):
+        if self.encoding_type == 'onehot':
+            return pd.DataFrame(self.encoder.transform(X), columns=self.encoder.get_feature_names_out())
+        else:
+            transformed_data = X.copy()
+            for column in X.columns:
+                transformed_data[column] = self.encoder[column].transform(X[column])
+            return transformed_data
+    
+    def fit_transform(self, X):
+        self.fit(X)
+        return self.transform(X)
+    
+# Numerical Encoder Class
+class NumericalEncoder:
+    def _init_(self, config):
+        self.config = config['preprocessing']['numerical']
+        self.scalers = {}
+
+    def fit(self, data):
+        for feature in self.config:
+            name = feature['name']
+            scaler_type = feature.get('scale', 'standard')
+            
+            if scaler_type == 'standard':
+                scaler = StandardScaler()
+            elif scaler_type == 'minmax':
+                scaler = MinMaxScaler()
+            else:
+                raise ValueError(f"Unsupported scaling method: {scaler_type}")
+            
+            scaler.fit(data[[name]])
+            self.scalers[name] = scaler
+
+    def transform(self, data):
+        for name, scaler in self.scalers.items():
+            data[name] = scaler.transform(data[[name]])
+        return data
+    
 class Model:
     def __init__(self, config):
         self.config = config
