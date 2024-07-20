@@ -20,6 +20,10 @@ from scipy.special import softmax
 from tqdm import tqdm
 
 from sklearn.metrics import accuracy_score, precision_score, recall_score
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 # nltk.download('punkt')
 # nltk.download('stopwords')
 
@@ -117,7 +121,58 @@ class DataSplitter:
         self.validation_data.to_hdf(f'dataset.validation.hdf5', key='validation', mode='w')
         print("Writing preprocessed validation set to dataset.validation.hdf5\n")
 
+class ParallelCNN(nn.Module):
+    def __init__(self, config):
+        super(ParallelCNN, self).__init__()
+        self.embedding = nn.Embedding(config['params']['vocab_size'], config['params']['embedding_size'])
+        self.convs = nn.ModuleList([
+            nn.Conv2d(1, config['params']['num_filters'], (k, config['params']['embedding_size'])) for k in config['params']['filter_sizes']
+        ])
+        self.fc_layers = nn.ModuleList([
+            nn.Linear(config['params']['num_filters'] * len(config['params']['filter_sizes']), config['params']['fc_size'])
+            for _ in range(config['params']['num_fc_layers'])
+        ])
+        self.dropout = nn.Dropout(config['params']['dropout'])
+        self.output_layer = nn.Linear(config['params']['fc_size'], config['params']['output_size'])
+
+    def forward(self, x):
+        x = self.embedding(x).unsqueeze(1)
+        x = [F.relu(conv(x)).squeeze(3) for conv in self.convs]
+        x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
+        x = torch.cat(x, 1)
+        for fc in self.fc_layers:
+            x = self.dropout(F.relu(fc(x)))
+        x = self.output_layer(x)
+        return x
     
+class StackedCNN(nn.Module):
+    def __init__(self, config):
+        super(StackedCNN, self).__init__()
+        self.embedding = nn.Embedding(config['params']['vocab_size'], config['params']['embedding_size'])
+        self.convs = nn.ModuleList([
+            nn.Sequential(
+                nn.Conv2d(1, config['params']['num_filters'], (k, config['params']['embedding_size'])),
+                nn.ReLU(),
+                nn.Conv2d(config['params']['num_filters'], config['params']['num_filters'], (k, 1))
+            ) for k in config['params']['filter_sizes']
+        ])
+        self.fc_layers = nn.ModuleList([
+            nn.Linear(config['params']['num_filters'] * len(config['params']['filter_sizes']), config['params']['fc_size'])
+            for _ in range(config['params']['num_fc_layers'])
+        ])
+        self.dropout = nn.Dropout(config['params']['dropout'])
+        self.output_layer = nn.Linear(config['params']['fc_size'], config['params']['output_size'])
+
+    def forward(self, x):
+        x = self.embedding(x).unsqueeze(1)  
+        x = [F.relu(conv(x)).squeeze(3) for conv in self.convs]
+        x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
+        x = torch.cat(x, 1)
+        for fc in self.fc_layers:
+            x = self.dropout(F.relu(fc(x)))
+        x = self.output_layer(x)
+        return x
+
 class Model:
     def __init__(self, config):
         self.config = config
@@ -158,7 +213,7 @@ class Model:
         console.print(table)      
 
 def main():
-    config_path = 'config.yaml'
+    config_path = 'pcnn.yaml'
     console = Console()
 
     # Load data and config
@@ -196,9 +251,19 @@ def main():
     
     console.print(table)
 
-    model = Model(config)
-    results = model.roberta(test_set,num_samples=5)
-    model.print_results(results)
+    
+
+    for feature in config['input_features']:
+        if feature['encoder'] == 'parallel_cnn':
+            encoder = ParallelCNN(feature)
+        if feature['encoder'] == 'roberta':
+            model = Model(config)
+            results = model.roberta(test_set,num_samples=5)
+            model.print_results(results)
+        if feature['encoder'] == 'stacked_cnn':
+            encoder = StackedCNN(feature)
+    print(encoder)
+
 
 
 if __name__ == "__main__":

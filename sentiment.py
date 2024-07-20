@@ -130,7 +130,6 @@ class RNNEncoder(tf.keras.Model):
     def __init__(self, config,vocab_size):
         super(RNNEncoder, self).__init__()
         self.config=config['model']
-
         self.embedding_size = self.config['embedding_size']
         self.hidden_size = self.config['state_size']
         self.output_size = self.config['output_size']
@@ -192,13 +191,13 @@ class RNNEncoder(tf.keras.Model):
 
     def call(self, x):
         x = self.embedding(x)
-        x = self.dropout(x)
         
-
         if self.cell_type == 'lstm':
             output, hidden_state, cell_state = self.rnn(x)
         else:
             output, hidden_state = self.rnn(x)
+        
+        output = self.dropout(output)
 
         # Apply representation type
         if self.representation == 'dense':
