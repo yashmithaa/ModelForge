@@ -20,6 +20,12 @@ from scipy.special import softmax
 from tqdm import tqdm
 
 from sklearn.metrics import accuracy_score, precision_score, recall_score
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from sklearn.preprocessing import OneHotEncoder, StandardScaler, LabelEncoder, MinMaxScaler
 # nltk.download('punkt')
 # nltk.download('stopwords')
 
@@ -117,6 +123,114 @@ class DataSplitter:
         self.validation_data.to_hdf(f'dataset.validation.hdf5', key='validation', mode='w')
         print("Writing preprocessed validation set to dataset.validation.hdf5\n")
 
+class ParallelCNN(nn.Module):
+    def __init__(self, config):
+        super(ParallelCNN, self).__init__()
+        self.embedding = nn.Embedding(config['params']['vocab_size'], config['params']['embedding_size'])
+        self.convs = nn.ModuleList([
+            nn.Conv2d(1, config['params']['num_filters'], (k, config['params']['embedding_size'])) for k in config['params']['filter_sizes']
+        ])
+        self.fc_layers = nn.ModuleList([
+            nn.Linear(config['params']['num_filters'] * len(config['params']['filter_sizes']), config['params']['fc_size'])
+            for _ in range(config['params']['num_fc_layers'])
+        ])
+        self.dropout = nn.Dropout(config['params']['dropout'])
+        self.output_layer = nn.Linear(config['params']['fc_size'], config['params']['output_size'])
+
+    def forward(self, x):
+        x = self.embedding(x).unsqueeze(1)
+        x = [F.relu(conv(x)).squeeze(3) for conv in self.convs]
+        x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
+        x = torch.cat(x, 1)
+        for fc in self.fc_layers:
+            x = self.dropout(F.relu(fc(x)))
+        x = self.output_layer(x)
+        return x
+    
+class StackedCNN(nn.Module):
+    def __init__(self, config):
+        super(StackedCNN, self).__init__()
+        self.embedding = nn.Embedding(config['params']['vocab_size'], config['params']['embedding_size'])
+        self.convs = nn.ModuleList([
+            nn.Sequential(
+                nn.Conv2d(1, config['params']['num_filters'], (k, config['params']['embedding_size'])),
+                nn.ReLU(),
+                nn.Conv2d(config['params']['num_filters'], config['params']['num_filters'], (k, 1))
+            ) for k in config['params']['filter_sizes']
+        ])
+        self.fc_layers = nn.ModuleList([
+            nn.Linear(config['params']['num_filters'] * len(config['params']['filter_sizes']), config['params']['fc_size'])
+            for _ in range(config['params']['num_fc_layers'])
+        ])
+        self.dropout = nn.Dropout(config['params']['dropout'])
+        self.output_layer = nn.Linear(config['params']['fc_size'], config['params']['output_size'])
+
+    def forward(self, x):
+        x = self.embedding(x).unsqueeze(1)  
+        x = [F.relu(conv(x)).squeeze(3) for conv in self.convs]
+        x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
+        x = torch.cat(x, 1)
+        for fc in self.fc_layers:
+            x = self.dropout(F.relu(fc(x)))
+        x = self.output_layer(x)
+        return x
+
+class CategoricalEncoder:
+    def _init_(self, encoding_type='onehot'):
+        if encoding_type not in ['onehot', 'label']:
+            raise ValueError("encoding_type should be either 'onehot' or 'label'")
+        self.encoding_type = encoding_type
+        self.encoder = None
+    
+    def fit(self, X):
+        if self.encoding_type == 'onehot':
+            self.encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
+            self.encoder.fit(X)
+        elif self.encoding_type == 'label':
+            self.encoder = {}
+            for column in X.columns:
+                le = LabelEncoder()
+                le.fit(X[column])
+                self.encoder[column] = le
+    
+    def transform(self, X):
+        if self.encoding_type == 'onehot':
+            return pd.DataFrame(self.encoder.transform(X), columns=self.encoder.get_feature_names_out())
+        else:
+            transformed_data = X.copy()
+            for column in X.columns:
+                transformed_data[column] = self.encoder[column].transform(X[column])
+            return transformed_data
+    
+    def fit_transform(self, X):
+        self.fit(X)
+        return self.transform(X)
+    
+# Numerical Encoder Class
+class NumericalEncoder:
+    def _init_(self, config):
+        self.config = config['preprocessing']['numerical']
+        self.scalers = {}
+
+    def fit(self, data):
+        for feature in self.config:
+            name = feature['name']
+            scaler_type = feature.get('scale', 'standard')
+            
+            if scaler_type == 'standard':
+                scaler = StandardScaler()
+            elif scaler_type == 'minmax':
+                scaler = MinMaxScaler()
+            else:
+                raise ValueError(f"Unsupported scaling method: {scaler_type}")
+            
+            scaler.fit(data[[name]])
+            self.scalers[name] = scaler
+
+    def transform(self, data):
+        for name, scaler in self.scalers.items():
+            data[name] = scaler.transform(data[[name]])
+        return data
     
 class Model:
     def __init__(self, config):
@@ -158,7 +272,7 @@ class Model:
         console.print(table)      
 
 def main():
-    config_path = 'config.yaml'
+    config_path = 'pcnn.yaml'
     console = Console()
 
     # Load data and config
@@ -196,9 +310,19 @@ def main():
     
     console.print(table)
 
-    model = Model(config)
-    results = model.roberta(test_set,num_samples=5)
-    model.print_results(results)
+    
+
+    for feature in config['input_features']:
+        if feature['encoder'] == 'parallel_cnn':
+            encoder = ParallelCNN(feature)
+        if feature['encoder'] == 'roberta':
+            model = Model(config)
+            results = model.roberta(test_set,num_samples=5)
+            model.print_results(results)
+        if feature['encoder'] == 'stacked_cnn':
+            encoder = StackedCNN(feature)
+    print(encoder)
+
 
 
 if __name__ == "__main__":
