@@ -6,16 +6,14 @@ dataset:
 input_features:
   - name: text 
     type: text 
-    encoder: stacked_cnn
+    encoder: parallel_cnn
     params:
       embedding_size: 256
-      embeddings_trainable: true
       num_filters: 256
       filter_sizes: [3, 4, 5]
       num_fc_layers: 2
       vocab_size: 10000
       fc_size: 256
-      activation: relu
       dropout: 0.5
       output_size: 3
       
