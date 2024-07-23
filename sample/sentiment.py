@@ -8,26 +8,26 @@ import string
 import numpy as np
 import json
 
+import tensorflow as tf
+from tensorflow.keras.layers.experimental.preprocessing import TextVectorization
+from tensorflow.keras import layers
+from tensorflow.keras import initializers
+
+
 from rich.console import Console
 from rich.table import Table
 from rich.markdown import Markdown
 from rich.pretty import pprint
 import sys
 
-from transformers import AutoTokenizer
-from transformers import TFAutoModelForSequenceClassification
+from transformers import AutoTokenizer, TFAutoModelForSequenceClassification
 from scipy.special import softmax
 from tqdm import tqdm
 
 from sklearn.metrics import accuracy_score, precision_score, recall_score
+global vocab_size
 
 
-import tensorflow as tf
-from tensorflow.keras import layers
-from tensorflow.keras import initializers
-from scipy.special import softmax
-
-from sklearn.preprocessing import OneHotEncoder, StandardScaler, LabelEncoder, MinMaxScaler
 # nltk.download('punkt')
 # nltk.download('stopwords')
 
@@ -45,7 +45,7 @@ class Loader:
         dataset_config = self.config['dataset']
         self.data = pd.read_csv(dataset_config['path'], delimiter=dataset_config['delimiter'])
         return self.data
-    
+
 class DataCleaner:
     def __init__(self, config):
         self.config = config
@@ -87,6 +87,7 @@ class TextPreprocessor:
         data['text'] = data['text'].apply(lambda x: self.preprocess_text(x))
         return data
 
+ 
 class DataSplitter:
     def __init__(self, config):
         self.config = config['preprocessing']['split']
@@ -119,72 +120,11 @@ class DataSplitter:
     
     def save_hdf5(self):
         self.train_data.to_hdf(f'dataset.training.hdf5', key='train', mode='w')
-        print("\nWriting preprocessed training set to dataset.training.hdf5")
+        print("\nWriting preprocessed training set cache to dataset.training.hdf5")
         self.test_data.to_hdf(f'dataset.test.hdf5', key='test', mode='w')
-        print("Writing preprocessed test set to dataset.test.hdf5")
+        print("Writing preprocessed test set cache to dataset.test.hdf5")
         self.validation_data.to_hdf(f'dataset.validation.hdf5', key='validation', mode='w')
-        print("Writing preprocessed validation set to dataset.validation.hdf5\n")
-
-class ParallelCNN(tf.keras.Model):
-    def __init__(self, config):
-        super(ParallelCNN, self).__init__()
-        self.embedding = tf.keras.layers.Embedding(input_dim=config['params']['vocab_size'],
-                                                   output_dim=config['params']['embedding_size'])
-        self.convs = [
-            tf.keras.layers.Conv2D(filters=config['params']['num_filters'],
-                                   kernel_size=(k, config['params']['embedding_size']),
-                                   activation='relu') for k in config['params']['filter_sizes']
-        ]
-        self.fc_layers = [
-            tf.keras.layers.Dense(units=config['params']['fc_size'], activation='relu')
-            for _ in range(config['params']['num_fc_layers'])
-        ]
-        self.dropout = tf.keras.layers.Dropout(rate=config['params']['dropout'])
-        self.output_layer = tf.keras.layers.Dense(units=config['params']['output_size'])
-
-    def call(self, inputs):
-        x = self.embedding(inputs)
-        x = tf.expand_dims(x, -1)
-        x = [tf.squeeze(conv(x), axis=2) for conv in self.convs]
-        x = [tf.reduce_max(input_tensor=i, axis=1) for i in x]
-        x = tf.concat(x, axis=1)
-        for fc in self.fc_layers:
-            x = self.dropout(fc(x))
-        x = self.output_layer(x)
-        return x
-    
-class StackedCNN(tf.keras.Model):
-    def __init__(self, config):
-        super(StackedCNN, self).__init__()
-        self.embedding = tf.keras.layers.Embedding(input_dim=config['params']['vocab_size'],
-                                                   output_dim=config['params']['embedding_size'])
-        self.convs = [
-            tf.keras.Sequential([
-                tf.keras.layers.Conv2D(filters=config['params']['num_filters'],
-                                       kernel_size=(k, config['params']['embedding_size']),
-                                       activation='relu'),
-                tf.keras.layers.Conv2D(filters=config['params']['num_filters'],
-                                       kernel_size=(k, 1),
-                                       activation='relu')
-            ]) for k in config['params']['filter_sizes']
-        ]
-        self.fc_layers = [
-            tf.keras.layers.Dense(units=config['params']['fc_size'], activation='relu')
-            for _ in range(config['params']['num_fc_layers'])
-        ]
-        self.dropout = tf.keras.layers.Dropout(rate=config['params']['dropout'])
-        self.output_layer = tf.keras.layers.Dense(units=config['params']['output_size'])
-
-    def call(self, inputs):
-        x = self.embedding(inputs)
-        x = tf.expand_dims(x, -1)
-        x = [tf.squeeze(conv(x), axis=2) for conv in self.convs]
-        x = [tf.reduce_max(input_tensor=i, axis=1) for i in x]
-        x = tf.concat(x, axis=1)
-        for fc in self.fc_layers:
-            x = self.dropout(fc(x))
-        x = self.output_layer(x)
-        return x
+        print("Writing preprocessed validation set cache to dataset.validation.hdf5\n")
 
 class RNNEncoder(tf.keras.Model):
     def __init__(self, config):
@@ -287,64 +227,7 @@ class RNNEncoder(tf.keras.Model):
     def encode_data(self, data):
         encoded_data = self.call(data)
         return encoded_data
-    
-class CategoricalEncoder:
-    def _init_(self, encoding_type='onehot'):
-        if encoding_type not in ['onehot', 'label']:
-            raise ValueError("encoding_type should be either 'onehot' or 'label'")
-        self.encoding_type = encoding_type
-        self.encoder = None
-    
-    def fit(self, X):
-        if self.encoding_type == 'onehot':
-            self.encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
-            self.encoder.fit(X)
-        elif self.encoding_type == 'label':
-            self.encoder = {}
-            for column in X.columns:
-                le = LabelEncoder()
-                le.fit(X[column])
-                self.encoder[column] = le
-    
-    def transform(self, X):
-        if self.encoding_type == 'onehot':
-            return pd.DataFrame(self.encoder.transform(X), columns=self.encoder.get_feature_names_out())
-        else:
-            transformed_data = X.copy()
-            for column in X.columns:
-                transformed_data[column] = self.encoder[column].transform(X[column])
-            return transformed_data
-    
-    def fit_transform(self, X):
-        self.fit(X)
-        return self.transform(X)
-    
-# Numerical Encoder Class
-class NumericalEncoder:
-    def _init_(self, config):
-        self.config = config['preprocessing']['numerical']
-        self.scalers = {}
 
-    def fit(self, data):
-        for feature in self.config:
-            name = feature['name']
-            scaler_type = feature.get('scale', 'standard')
-            
-            if scaler_type == 'standard':
-                scaler = StandardScaler()
-            elif scaler_type == 'minmax':
-                scaler = MinMaxScaler()
-            else:
-                raise ValueError(f"Unsupported scaling method: {scaler_type}")
-            
-            scaler.fit(data[[name]])
-            self.scalers[name] = scaler
-
-    def transform(self, data):
-        for name, scaler in self.scalers.items():
-            data[name] = scaler.transform(data[[name]])
-        return data
-    
 class Model:
     def __init__(self, config):
         self.config = config
@@ -382,10 +265,11 @@ class Model:
         for text, scores in results:
             table.add_row(text, f"{scores['roberta_neg']:.4f}", f"{scores['roberta_neu']:.4f}", f"{scores['roberta_pos']:.4f}")
         console = Console()
-        console.print(table)      
+        console.print(table)
+
 
 def main():
-    config_path = 'pcnn.yaml'
+    config_path = 'rnn_config.yaml'
     console = Console()
 
     # Load data and config
@@ -396,6 +280,7 @@ def main():
     
     data = loader.load_dataset()
 
+    
     # clean the data
     cleaner = DataCleaner(config)
     data = cleaner.clean_data(data)
@@ -406,49 +291,47 @@ def main():
     # Preprocess data
     preprocessor = TextPreprocessor(config)
     data = preprocessor.preprocess_dataset(data)
+
+    text_data = data['text']
+    vectorizer = TextVectorization(max_tokens=None, output_mode='int')
+    vectorizer.adapt(text_data)
+    vocab_size = len(vectorizer.get_vocabulary())
     #print(f"Preprocessed data looks like,\n{data.head(5)}\n") #just to verify
 
+ 
     # Split data
-    splitter = DataSplitter(config)
-    train_set, validation_set, test_set = splitter.split_data(data)
+    # splitter = DataSplitter(config)
+    # train_set, validation_set, test_set = splitter.split_data(data)
 
-    table = Table(title=f"Dataset statistics\nTotal datset: {len(train_set)+len(validation_set)+len(test_set)}")
-    table.add_column("Dataset", style = "Cyan")
-    table.add_column("Size (in Rows)")
-    table.add_column("Size (in memeory)")
-    table.add_row("Train set", str(len(train_set)), f"{(sys.getsizeof(train_set) / (1024 * 1024)):.2f} Mb")
-    table.add_row("Validation set", str(len(validation_set)), f"{(sys.getsizeof(validation_set) / (1024 * 1024)):.2f} Mb")
-    table.add_row("Test set", str(len(test_set)), f"{(sys.getsizeof(test_set) / (1024 * 1024)):.2f} Mb")
+    # table = Table(title=f"Dataset statistics\nTotal dataset: {len(train_set)+len(validation_set)+len(test_set)}")
+    # table.add_column("Dataset", style = "cyan")
+    # table.add_column("Size (in Rows)")
+    # table.add_column("Size (in memory)")
+    # table.add_row("Train set", str(len(train_set)), f"{(sys.getsizeof(train_set) / (1024 * 1024)):.2f} MB")
+    # table.add_row("Validation set", str(len(validation_set)), f"{(sys.getsizeof(validation_set) / (1024 * 1024)):.2f} MB")
+    # table.add_row("Test set", str(len(test_set)), f"{(sys.getsizeof(test_set) / (1024 * 1024)):.2f} MB")
 
-    
-    console.print(table)
+    # console.print(table)
 
-    
+    """model = Model(config)
+    results = model.roberta(test_set, num_samples=5)
+    model.print_results(results)"""
 
     for feature in config['input_features']:
-        if feature['encoder'] == 'parallel_cnn':
-            encoder = ParallelCNN(feature)
-            
-        if feature['encoder'] == 'roberta':
-            model = Model(config)
-            results = model.roberta(test_set,num_samples=5)
-            model.print_results(results)
-            
-        if feature['encoder'] == 'stacked_cnn':
-            encoder = StackedCNN(feature)
-            
-        if feature['encoder'] == 'rnn':
-            encoder = RNNEncoder(feature)
-            # Just for verification
-            example_data = tf.random.uniform((32, 10), dtype=tf.int32, maxval=feature['params']['vocab_size'])
-            encoded_data = encoder.encode_data(example_data)
-            print("Encoded Data:")
-            print(encoded_data)
+        
+        rnn_encoder = RNNEncoder(feature)
+        example_data = tf.random.uniform((32, 10), dtype=tf.int32, maxval=feature['params']['vocab_size'])
 
-    print(encoder)
-    
+    print(rnn_encoder)
+    # Example input data (replace with your actual input data)
+      # Example shape (batch_size, sequence_length)
 
+    # Encode the data
+    encoded_data = rnn_encoder.encode_data(example_data)
+    print("Encoded Data:")
+    print(encoded_data)
 
 
 if __name__ == "__main__":
     main()
+
