@@ -28,8 +28,12 @@ from tensorflow.keras import initializers
 from scipy.special import softmax
 
 from sklearn.preprocessing import OneHotEncoder, StandardScaler, LabelEncoder, MinMaxScaler
+import logging
 # nltk.download('punkt')
 # nltk.download('stopwords')
+
+# Set up logging
+logging.basicConfig(filename="modelforge.log", filemode='w',level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class Loader:
     def __init__(self, config_path):
@@ -37,13 +41,17 @@ class Loader:
         self.data = None
 
     def load_config(self, config_path):
+        logging.info(f"Loading config from {config_path}")
         with open(config_path, 'r') as file:
             config = yaml.safe_load(file)
+        logging.info("Config loaded successfully")
         return config
 
     def load_dataset(self):
         dataset_config = self.config['dataset']
+        logging.info(f"Loading dataset from {dataset_config['path']}")
         self.data = pd.read_csv(dataset_config['path'], delimiter=dataset_config['delimiter'])
+        logging.info("Dataset loaded successfully")
         return self.data
     
 class DataCleaner:
@@ -51,8 +59,10 @@ class DataCleaner:
         self.config = config
 
     def clean_data(self, data):
+        logging.info("Cleaning data")
         data.dropna(inplace=True)
         data.drop_duplicates(inplace=True)
+        logging.info("Data cleaned successfully")
         return data
     
 class TextPreprocessor:
@@ -84,6 +94,7 @@ class TextPreprocessor:
         return tokens
 
     def preprocess_dataset(self, data):
+        logging.info("Preprocessing dataset")
         data['text'] = data['text'].apply(lambda x: self.preprocess_text(x))
         return data
 
@@ -115,9 +126,11 @@ class DataSplitter:
 
         self.save_hdf5()
 
+        logging.info("Data split successfully")
         return self.train_data, self.test_data, self.validation_data
     
     def save_hdf5(self):
+        logging.info("Saving datasets to HDF5 files")
         self.train_data.to_hdf(f'dataset.training.hdf5', key='train', mode='w')
         print("\nWriting preprocessed training set to dataset.training.hdf5")
         self.test_data.to_hdf(f'dataset.test.hdf5', key='test', mode='w')
@@ -128,6 +141,7 @@ class DataSplitter:
 class ParallelCNN(tf.keras.Model):
     def __init__(self, config):
         super(ParallelCNN, self).__init__()
+        logging.info(f"ParallelCNN encoder initialized with configuration: {config['params']}")
         self.embedding = tf.keras.layers.Embedding(input_dim=config['params']['vocab_size'],
                                                    output_dim=config['params']['embedding_size'])
         self.convs = [
@@ -151,11 +165,13 @@ class ParallelCNN(tf.keras.Model):
         for fc in self.fc_layers:
             x = self.dropout(fc(x))
         x = self.output_layer(x)
+        
         return x
     
 class StackedCNN(tf.keras.Model):
     def __init__(self, config):
         super(StackedCNN, self).__init__()
+        logging.info(f"StackedCNN encoder initialized with configuration: {config['params']}")
         self.embedding = tf.keras.layers.Embedding(input_dim=config['params']['vocab_size'],
                                                    output_dim=config['params']['embedding_size'])
         self.convs = [
@@ -189,6 +205,7 @@ class StackedCNN(tf.keras.Model):
 class RNNEncoder(tf.keras.Model):
     def __init__(self, config):
         super(RNNEncoder, self).__init__()
+        logging.info(f"RNN encoder initialized with configuration: {config['params']}")
         self.config=config['params']
         self.embedding_size = self.config['embedding_size']
         self.hidden_size = self.config['state_size']
@@ -294,6 +311,7 @@ class CategoricalEncoder:
             raise ValueError("encoding_type should be either 'onehot' or 'label'")
         self.encoding_type = encoding_type
         self.encoder = None
+        logging.info(f"categorical encoder initialized")
     
     def fit(self, X):
         if self.encoding_type == 'onehot':
@@ -324,6 +342,7 @@ class NumericalEncoder:
     def _init_(self, config):
         self.config = config['preprocessing']['numerical']
         self.scalers = {}
+        logging.info(f"numeric encoder initialized")
 
     def fit(self, data):
         for feature in self.config:
@@ -344,7 +363,46 @@ class NumericalEncoder:
         for name, scaler in self.scalers.items():
             data[name] = scaler.transform(data[[name]])
         return data
-    
+
+# Categorical Decoder Class
+class CategoricalDecoder:
+    def _init_(self, encoding_type='onehot'):
+        if encoding_type not in ['onehot', 'label']:
+            raise ValueError("encoding_type should be either 'onehot' or 'label'")
+        self.encoding_type = encoding_type
+        self.encoder = None
+        self.column_names = None
+        logging.info(f"categorical decoder initialized")
+
+    def fit(self, encoder, column_names):
+        self.encoder = encoder
+        self.column_names = column_names
+
+    def inverse_transform(self, X):
+        if self.encoding_type == 'onehot':
+            inverse_transformed_data = self.encoder.inverse_transform(X)
+            return pd.DataFrame(inverse_transformed_data, columns=self.column_names)
+        else:
+            transformed_data = X.copy()
+            for column in self.column_names:
+                transformed_data[column] = self.encoder[column].inverse_transform(X[column])
+            return transformed_data
+
+#NumericalDecoder
+class NumericalDecoder:
+    def _init_(self, config):
+        self.config = config['preprocessing']['numerical']
+        self.scalers = {}
+        logging.info(f"numerical decoder initialized")
+
+    def fit(self, scalers):
+        self.scalers = scalers
+
+    def inverse_transform(self, data):
+        for name, scaler in self.scalers.items():
+            data[name] = scaler.inverse_transform(data[[name]])
+        return data
+
 class Model:
     def __init__(self, config):
         self.config = config
@@ -387,6 +445,8 @@ class Model:
 def main():
     config_path = 'pcnn.yaml'
     console = Console()
+
+    logging.info("Starting main function")
 
     # Load data and config
     loader = Loader(config_path)
