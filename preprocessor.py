@@ -7,7 +7,6 @@ from sklearn.model_selection import train_test_split
 import string
 import numpy as np
 import json
-import logging
 
 from rich.console import Console
 from rich.table import Table
@@ -21,13 +20,20 @@ from scipy.special import softmax
 from tqdm import tqdm
 
 from sklearn.metrics import accuracy_score, precision_score, recall_score
+
+
 import tensorflow as tf
 from tensorflow.keras import layers
 from tensorflow.keras import initializers
+from scipy.special import softmax
+
 from sklearn.preprocessing import OneHotEncoder, StandardScaler, LabelEncoder, MinMaxScaler
+import logging
+# nltk.download('punkt')
+# nltk.download('stopwords')
 
 # Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(filename="modelforge.log", filemode='w',level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class Loader:
     def __init__(self, config_path):
@@ -47,7 +53,7 @@ class Loader:
         self.data = pd.read_csv(dataset_config['path'], delimiter=dataset_config['delimiter'])
         logging.info("Dataset loaded successfully")
         return self.data
-
+    
 class DataCleaner:
     def __init__(self, config):
         self.config = config
@@ -58,7 +64,7 @@ class DataCleaner:
         data.drop_duplicates(inplace=True)
         logging.info("Data cleaned successfully")
         return data
-
+    
 class TextPreprocessor:
     def __init__(self, config):
         self.config = config['preprocessing']['text']
@@ -90,7 +96,6 @@ class TextPreprocessor:
     def preprocess_dataset(self, data):
         logging.info("Preprocessing dataset")
         data['text'] = data['text'].apply(lambda x: self.preprocess_text(x))
-        logging.info("Dataset preprocessed successfully")
         return data
 
 class DataSplitter:
@@ -111,7 +116,6 @@ class DataSplitter:
         validation_size = validation_percent / (test_percent + validation_percent)
 
         # Shuffle the data
-        logging.info("Shuffling data")
         data = data.sample(frac=1, random_state=random_seed).reset_index(drop=True)
 
         # First split: into training and remaining data (test + validation)
@@ -124,19 +128,20 @@ class DataSplitter:
 
         logging.info("Data split successfully")
         return self.train_data, self.test_data, self.validation_data
-
+    
     def save_hdf5(self):
         logging.info("Saving datasets to HDF5 files")
         self.train_data.to_hdf(f'dataset.training.hdf5', key='train', mode='w')
-        logging.info("Training set saved to dataset.training.hdf5")
+        print("\nWriting preprocessed training set to dataset.training.hdf5")
         self.test_data.to_hdf(f'dataset.test.hdf5', key='test', mode='w')
-        logging.info("Test set saved to dataset.test.hdf5")
+        print("Writing preprocessed test set to dataset.test.hdf5")
         self.validation_data.to_hdf(f'dataset.validation.hdf5', key='validation', mode='w')
-        logging.info("Validation set saved to dataset.validation.hdf5")
+        print("Writing preprocessed validation set to dataset.validation.hdf5\n")
 
 class ParallelCNN(tf.keras.Model):
     def __init__(self, config):
         super(ParallelCNN, self).__init__()
+        logging.info(f"ParallelCNN encoder initialized with configuration: {config['params']}")
         self.embedding = tf.keras.layers.Embedding(input_dim=config['params']['vocab_size'],
                                                    output_dim=config['params']['embedding_size'])
         self.convs = [
@@ -160,11 +165,13 @@ class ParallelCNN(tf.keras.Model):
         for fc in self.fc_layers:
             x = self.dropout(fc(x))
         x = self.output_layer(x)
+        
         return x
-
+    
 class StackedCNN(tf.keras.Model):
     def __init__(self, config):
         super(StackedCNN, self).__init__()
+        logging.info(f"StackedCNN encoder initialized with configuration: {config['params']}")
         self.embedding = tf.keras.layers.Embedding(input_dim=config['params']['vocab_size'],
                                                    output_dim=config['params']['embedding_size'])
         self.convs = [
@@ -198,7 +205,8 @@ class StackedCNN(tf.keras.Model):
 class RNNEncoder(tf.keras.Model):
     def __init__(self, config):
         super(RNNEncoder, self).__init__()
-        self.config = config['params']
+        logging.info(f"RNN encoder initialized with configuration: {config['params']}")
+        self.config=config['params']
         self.embedding_size = self.config['embedding_size']
         self.hidden_size = self.config['state_size']
         self.output_size = self.config['output_size']
@@ -224,169 +232,283 @@ class RNNEncoder(tf.keras.Model):
             self.rnn = layers.SimpleRNN(self.hidden_size, 
                                         return_sequences=True, 
                                         return_state=True, 
-                                        recurrent_dropout=self.recurrent_dropout)
+                                        dropout=self.recurrent_dropout, 
+                                        recurrent_initializer=self.recurrent_initializer, 
+                                        use_bias=self.use_bias)
         elif self.cell_type == 'lstm':
             self.rnn = layers.LSTM(self.hidden_size, 
                                    return_sequences=True, 
                                    return_state=True, 
-                                   recurrent_dropout=self.recurrent_dropout)
+                                   dropout=self.recurrent_dropout, 
+                                   recurrent_initializer=self.recurrent_initializer, 
+                                   unit_forget_bias=self.unit_forget_bias, 
+                                   use_bias=self.use_bias)
         elif self.cell_type == 'gru':
             self.rnn = layers.GRU(self.hidden_size, 
                                   return_sequences=True, 
                                   return_state=True, 
-                                  recurrent_dropout=self.recurrent_dropout)
-        else:
-            raise ValueError("Unsupported cell type")
+                                  dropout=self.recurrent_dropout, 
+                                  recurrent_initializer=self.recurrent_initializer, 
+                                  use_bias=self.use_bias)
+
+        self.dropout = layers.Dropout(rate=config.get('dropout', 0.0))
 
         # Fully connected layers
-        self.fc_layers = [layers.Dense(self.hidden_size, activation='relu') for _ in range(self.num_fc_layers)]
-        self.output_layer = layers.Dense(self.output_size)
+        self.fc_layers = []
+        if self.num_fc_layers > 0:
+            input_dim = self.hidden_size * (2 if self.bidirectional else 1)
+            for _ in range(self.num_fc_layers):
+                self.fc_layers.append(layers.Dense(self.output_size))
+                input_dim = self.output_size
 
-    def call(self, inputs):
-        x = self.embedding(inputs)
-        rnn_out, state = self.rnn(x)
-        if self.reduce_output:
-            x = tf.reduce_mean(rnn_out, axis=1)
+        # Regularization
+        if self.norm:
+            self.regularizer = layers.LayerNormalization()
         else:
-            x = rnn_out
-        for fc in self.fc_layers:
-            x = fc(x)
-        x = self.output_layer(x)
-        return x
+            self.regularizer = None
 
-class NumericalEncoder:
-    def __init__(self, config):
-        if 'numerical' in config['preprocessing']:
-            self.config = config['preprocessing']['numerical']
-            self.scalers = {
-                'standard': StandardScaler,
-                'minmax': MinMaxScaler
-            }
-            self.encoders = {
-                'onehot': OneHotEncoder,
-                'label': LabelEncoder
-            }
-        else:
-            self.config = None
-
-    def encode(self, data, columns):
-        if self.config is None:
-            logging.warning("No numerical preprocessing configuration found. Skipping numerical encoding.")
-            return data
+    def call(self, x):
+        x = self.embedding(x)
         
-        for column in columns:
-            if self.config.get(column) is None:
-                logging.warning(f"No configuration found for column '{column}'. Skipping encoding.")
-                continue
+        if self.cell_type == 'lstm':
+            output, hidden_state, cell_state = self.rnn(x)
+        else:
+            output, hidden_state = self.rnn(x)
+        
+        output = self.dropout(output)
 
-            if self.config[column]['method'] == 'scaling':
-                scaler = self.scalers[self.config[column]['type']]()
-                data[column] = scaler.fit_transform(data[[column]])
-            elif self.config[column]['method'] == 'encoding':
-                encoder = self.encoders[self.config[column]['type']]()
-                if self.config[column]['type'] == 'label':
-                    data[column] = encoder.fit_transform(data[column])
-                else:
-                    encoded = encoder.fit_transform(data[[column]]).toarray()
-                    for i in range(encoded.shape[1]):
-                        data[f'{column}_{i}'] = encoded[:, i]
-                    data.drop(columns=[column], inplace=True)
+        # Apply representation type
+        if self.representation == 'dense':
+            output = output
+        elif self.representation == 'sparse':
+            output = tf.sparse.to_dense(output)
+
+        # Reduce output
+        if self.reduce_output == 'sum':
+            output = tf.reduce_sum(output, axis=1)
+        elif self.reduce_output == 'mean':
+            output = tf.reduce_mean(output, axis=1)
+        elif self.reduce_output == 'last':
+            output = output[:, -1, :]
+
+        # Apply fully connected layers
+        for fc in self.fc_layers:
+            output = fc(output)
+
+        # Apply regularizer
+        if self.regularizer:
+            output = self.regularizer(output)
+
+        return output
+    
+    def encode_data(self, data):
+        encoded_data = self.call(data)
+        return encoded_data
+    
+class CategoricalEncoder:
+    def _init_(self, encoding_type='onehot'):
+        if encoding_type not in ['onehot', 'label']:
+            raise ValueError("encoding_type should be either 'onehot' or 'label'")
+        self.encoding_type = encoding_type
+        self.encoder = None
+        logging.info(f"categorical encoder initialized")
+    
+    def fit(self, X):
+        if self.encoding_type == 'onehot':
+            self.encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
+            self.encoder.fit(X)
+        elif self.encoding_type == 'label':
+            self.encoder = {}
+            for column in X.columns:
+                le = LabelEncoder()
+                le.fit(X[column])
+                self.encoder[column] = le
+    
+    def transform(self, X):
+        if self.encoding_type == 'onehot':
+            return pd.DataFrame(self.encoder.transform(X), columns=self.encoder.get_feature_names_out())
+        else:
+            transformed_data = X.copy()
+            for column in X.columns:
+                transformed_data[column] = self.encoder[column].transform(X[column])
+            return transformed_data
+    
+    def fit_transform(self, X):
+        self.fit(X)
+        return self.transform(X)
+    
+# Numerical Encoder Class
+class NumericalEncoder:
+    def _init_(self, config):
+        self.config = config['preprocessing']['numerical']
+        self.scalers = {}
+        logging.info(f"numeric encoder initialized")
+
+    def fit(self, data):
+        for feature in self.config:
+            name = feature['name']
+            scaler_type = feature.get('scale', 'standard')
+            
+            if scaler_type == 'standard':
+                scaler = StandardScaler()
+            elif scaler_type == 'minmax':
+                scaler = MinMaxScaler()
+            else:
+                raise ValueError(f"Unsupported scaling method: {scaler_type}")
+            
+            scaler.fit(data[[name]])
+            self.scalers[name] = scaler
+
+    def transform(self, data):
+        for name, scaler in self.scalers.items():
+            data[name] = scaler.transform(data[[name]])
         return data
 
-class TextClassificationModel:
-    def __init__(self, config):
-        self.config = config['model']
-        self.encoder = self.create_encoder()
-        self.decoder = self.create_decoder()
+# Categorical Decoder Class
+class CategoricalDecoder:
+    def _init_(self, encoding_type='onehot'):
+        if encoding_type not in ['onehot', 'label']:
+            raise ValueError("encoding_type should be either 'onehot' or 'label'")
+        self.encoding_type = encoding_type
+        self.encoder = None
+        self.column_names = None
+        logging.info(f"categorical decoder initialized")
 
-    def create_encoder(self):
-        if self.config['encoder'] == 'cnn_parallel':
-            return ParallelCNN(self.config)
-        elif self.config['encoder'] == 'cnn_stacked':
-            return StackedCNN(self.config)
-        elif self.config['encoder'] == 'rnn':
-            return RNNEncoder(self.config)
+    def fit(self, encoder, column_names):
+        self.encoder = encoder
+        self.column_names = column_names
+
+    def inverse_transform(self, X):
+        if self.encoding_type == 'onehot':
+            inverse_transformed_data = self.encoder.inverse_transform(X)
+            return pd.DataFrame(inverse_transformed_data, columns=self.column_names)
         else:
-            raise ValueError(f"Unsupported encoder type: {self.config['encoder']}")
+            transformed_data = X.copy()
+            for column in self.column_names:
+                transformed_data[column] = self.encoder[column].inverse_transform(X[column])
+            return transformed_data
 
-    def create_decoder(self):
-        # Implement decoder creation logic based on config if needed
-        pass
+#NumericalDecoder
+class NumericalDecoder:
+    def _init_(self, config):
+        self.config = config['preprocessing']['numerical']
+        self.scalers = {}
+        logging.info(f"numerical decoder initialized")
 
-    def compile(self):
-        self.encoder.compile(optimizer=self.config['optimizer'], loss=self.config['loss'])
+    def fit(self, scalers):
+        self.scalers = scalers
 
-    def train(self, train_data, validation_data):
-        history = self.encoder.fit(train_data, validation_data, epochs=self.config['epochs'], batch_size=self.config['batch_size'])
-        return history
+    def inverse_transform(self, data):
+        for name, scaler in self.scalers.items():
+            data[name] = scaler.inverse_transform(data[[name]])
+        return data
 
-    def evaluate(self, test_data):
-        return self.encoder.evaluate(test_data)
-    
-    def predict(self, inputs):
-        return self.encoder.predict(inputs)
-
-    def save_model(self, filepath):
-        self.encoder.save(filepath)
-    
-    def load_model(self, filepath):
-        self.encoder = tf.keras.models.load_model(filepath)
-
-class ModelTrainer:
-    def __init__(self, config, model, train_data, validation_data, test_data):
+class Model:
+    def __init__(self, config):
         self.config = config
-        self.model = model
-        self.train_data = train_data
-        self.validation_data = validation_data
-        self.test_data = test_data
+        self.MODEL = "cardiffnlp/twitter-roberta-base-sentiment"
+        self.tokenizer = AutoTokenizer.from_pretrained(self.MODEL)
+        self.model = TFAutoModelForSequenceClassification.from_pretrained(self.MODEL)
 
-    def train_and_evaluate(self):
-        logging.info("Starting training")
-        self.model.compile()
-        history = self.model.train(self.train_data, self.validation_data)
-        logging.info("Training completed")
-
-        logging.info("Evaluating model")
-        test_loss, test_acc = self.model.evaluate(self.test_data)
-        logging.info(f"Test Loss: {test_loss}, Test Accuracy: {test_acc}")
-        return history, test_loss, test_acc
-
-    def save_model(self, filepath):
-        self.model.save_model(filepath)
-        logging.info(f"Model saved at {filepath}")
+    def polarity_scores_roberta(self, example):
+        encoded_text = self.tokenizer(example, return_tensors='tf')
+        output = self.model(encoded_text)
+        scores = output.logits[0].numpy()
+        scores = softmax(scores)
+        scores_dict = {
+            'roberta_neg': scores[0],
+            'roberta_neu': scores[1],
+            'roberta_pos': scores[2]
+        }
+        return scores_dict
     
-    def load_model(self, filepath):
-        self.model.load_model(filepath)
-        logging.info(f"Model loaded from {filepath}")
+    def roberta(self, data, num_samples=5):
+        samples = data.head(num_samples)
+        results = []
+        for index, row in samples.iterrows():
+            text = row['text']
+            scores = self.polarity_scores_roberta(text)
+            results.append((text, scores))
+        return results
+    
+    def print_results(self, results):
+        table = Table(title="Results")
+        table.add_column("Text", justify="left")
+        table.add_column("Negative", justify="right")
+        table.add_column("Neutral", justify="right")
+        table.add_column("Positive", justify="right")
+        for text, scores in results:
+            table.add_row(text, f"{scores['roberta_neg']:.4f}", f"{scores['roberta_neu']:.4f}", f"{scores['roberta_pos']:.4f}")
+        console = Console()
+        console.print(table)      
 
-def main(config_path):
+def main():
+    config_path = 'pcnn.yaml'
+    console = Console()
+
     logging.info("Starting main function")
 
+    # Load data and config
     loader = Loader(config_path)
-    config = loader.config
+    config = loader.load_config(config_path)
+    print("\nUser specified config file\n")
+    pprint(config)
+    
     data = loader.load_dataset()
 
+    # clean the data
     cleaner = DataCleaner(config)
-    cleaned_data = cleaner.clean_data(data)
+    data = cleaner.clean_data(data)
 
-    text_preprocessor = TextPreprocessor(config)
-    preprocessed_data = text_preprocessor.preprocess_dataset(cleaned_data)
+    
+    md = Markdown('# Preprocessing')
+    console.print(md)
+    # Preprocess data
+    preprocessor = TextPreprocessor(config)
+    data = preprocessor.preprocess_dataset(data)
+    #print(f"Preprocessed data looks like,\n{data.head(5)}\n") #just to verify
 
-    numerical_encoder = NumericalEncoder(config)
-    encoded_data = numerical_encoder.encode(preprocessed_data, columns=['numerical_column_1', 'numerical_column_2'])
-
+    # Split data
     splitter = DataSplitter(config)
-    train_data, test_data, validation_data = splitter.split_data(encoded_data)
+    train_set, validation_set, test_set = splitter.split_data(data)
 
-    model = TextClassificationModel(config)
-    trainer = ModelTrainer(config, model, train_data, validation_data, test_data)
+    table = Table(title=f"Dataset statistics\nTotal datset: {len(train_set)+len(validation_set)+len(test_set)}")
+    table.add_column("Dataset", style = "Cyan")
+    table.add_column("Size (in Rows)")
+    table.add_column("Size (in memeory)")
+    table.add_row("Train set", str(len(train_set)), f"{(sys.getsizeof(train_set) / (1024 * 1024)):.2f} Mb")
+    table.add_row("Validation set", str(len(validation_set)), f"{(sys.getsizeof(validation_set) / (1024 * 1024)):.2f} Mb")
+    table.add_row("Test set", str(len(test_set)), f"{(sys.getsizeof(test_set) / (1024 * 1024)):.2f} Mb")
 
-    history, test_loss, test_acc = trainer.train_and_evaluate()
+    
+    console.print(table)
 
-    if config['save_model']:
-        trainer.save_model(config['model_save_path'])
+    
 
-    logging.info("Main function completed")
+    for feature in config['input_features']:
+        if feature['encoder'] == 'parallel_cnn':
+            encoder = ParallelCNN(feature)
+            
+        if feature['encoder'] == 'roberta':
+            model = Model(config)
+            results = model.roberta(test_set,num_samples=5)
+            model.print_results(results)
+            
+        if feature['encoder'] == 'stacked_cnn':
+            encoder = StackedCNN(feature)
+            
+        if feature['encoder'] == 'rnn':
+            encoder = RNNEncoder(feature)
+            # Just for verification
+            example_data = tf.random.uniform((32, 10), dtype=tf.int32, maxval=feature['params']['vocab_size'])
+            encoded_data = encoder.encode_data(example_data)
+            print("Encoded Data:")
+            print(encoded_data)
 
-if __name__ == '__main__':
-    main('config.yaml')
+    print(encoder)
+    
+
+
+
+if __name__ == "__main__":
+    main()
