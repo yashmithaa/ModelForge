@@ -15,8 +15,13 @@ from rich.pretty import pprint
 import sys
 
 from transformers import AutoTokenizer
-from transformers import TFAutoModelForSequenceClassification
-from scipy.special import softmax
+
+
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+import torch
+import torch.nn.functional as F
+from torch.nn.functional import softmax
+
 from tqdm import tqdm
 
 from sklearn.metrics import accuracy_score, precision_score, recall_score
@@ -29,12 +34,13 @@ from scipy.special import softmax
 
 from sklearn.preprocessing import OneHotEncoder, StandardScaler, LabelEncoder, MinMaxScaler
 import logging
-from tensorflow.keras.utils import plot_model
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 # nltk.download('punkt')
 # nltk.download('stopwords')
 
-# Set up logging
-logging.basicConfig(filename="modelforge.log", filemode='w',level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class Loader:
     def __init__(self, config_path):
@@ -51,7 +57,7 @@ class Loader:
     def load_dataset(self):
         dataset_config = self.config['dataset']
         logging.info(f"Loading dataset from {dataset_config['path']}")
-        self.data = pd.read_csv(dataset_config['path'], delimiter=dataset_config['delimiter'])
+        self.data = pd.read_csv(dataset_config['path'], delimiter=dataset_config['delimiter'], encoding='utf-8', encoding_errors='ignore')
         logging.info("Dataset loaded successfully")
         return self.data
     
@@ -98,7 +104,7 @@ class TextPreprocessor:
         logging.info("Preprocessing dataset")
         data['text'] = data['text'].apply(lambda x: self.preprocess_text(x))
         return data
-
+    
 class DataSplitter:
     def __init__(self, config):
         self.config = config['preprocessing']['split']
@@ -139,75 +145,35 @@ class DataSplitter:
         self.validation_data.to_hdf(f'preprocessed-data/dataset.validation.hdf5', key='validation', mode='w')
         print("Writing preprocessed validation set to preprocessed-data/dataset.validation.hdf5\n")
 
-class ParallelCNN(tf.keras.Model):
+class ParallelCNN(nn.Module):
     def __init__(self, config):
         super(ParallelCNN, self).__init__()
-        logging.info(f"ParallelCNN encoder initialized with configuration: {config['params']}")
-        self.embedding = tf.keras.layers.Embedding(input_dim=config['params']['vocab_size'],
-                                                   output_dim=config['params']['embedding_size'])
-        self.convs = [
-            tf.keras.layers.Conv2D(filters=config['params']['num_filters'],
-                                   kernel_size=(k, config['params']['embedding_size']),
-                                   activation='relu') for k in config['params']['filter_sizes']
-        ]
-        self.fc_layers = [
-            tf.keras.layers.Dense(units=config['params']['fc_size'], activation='relu')
+        self.embedding = nn.Embedding(config['params']['vocab_size'], config['params']['embedding_size'])
+        self.convs = nn.ModuleList([
+            nn.Conv2d(1, config['params']['num_filters'], (k, config['params']['embedding_size']))
+            for k in config['params']['filter_sizes']
+        ])
+        self.fc_layers = nn.ModuleList([
+            nn.Linear(config['params']['num_filters'] * len(config['params']['filter_sizes']), config['params']['fc_size'])
             for _ in range(config['params']['num_fc_layers'])
-        ]
-        self.dropout = tf.keras.layers.Dropout(rate=config['params']['dropout'])
-        self.output_layer = tf.keras.layers.Dense(units=config['params']['output_size'])
+        ])
+        self.dropout = nn.Dropout(config['params']['dropout'])
+        self.output_layer = nn.Linear(config['params']['fc_size'], config['params']['output_size'])
 
-    def call(self, inputs):
-        x = self.embedding(inputs)
-        x = tf.expand_dims(x, -1)
-        x = [tf.squeeze(conv(x), axis=2) for conv in self.convs]
-        x = [tf.reduce_max(input_tensor=i, axis=1) for i in x]
-        x = tf.concat(x, axis=1)
+    def forward(self, x):
+        x = self.embedding(x).unsqueeze(1)
+        x = [F.relu(conv(x)).squeeze(3) for conv in self.convs]
+        x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
+        x = torch.cat(x, 1)
         for fc in self.fc_layers:
-            x = self.dropout(fc(x))
+            x = self.dropout(F.relu(fc(x)))
         x = self.output_layer(x)
-        
         return x
     
-class StackedCNN(tf.keras.Model):
-    def __init__(self, config):
-        super(StackedCNN, self).__init__()
-        logging.info(f"StackedCNN encoder initialized with configuration: {config['params']}")
-        self.embedding = tf.keras.layers.Embedding(input_dim=config['params']['vocab_size'],
-                                                   output_dim=config['params']['embedding_size'])
-        self.convs = [
-            tf.keras.Sequential([
-                tf.keras.layers.Conv2D(filters=config['params']['num_filters'],
-                                       kernel_size=(k, config['params']['embedding_size']),
-                                       activation='relu'),
-                tf.keras.layers.Conv2D(filters=config['params']['num_filters'],
-                                       kernel_size=(k, 1),
-                                       activation='relu')
-            ]) for k in config['params']['filter_sizes']
-        ]
-        self.fc_layers = [
-            tf.keras.layers.Dense(units=config['params']['fc_size'], activation='relu')
-            for _ in range(config['params']['num_fc_layers'])
-        ]
-        self.dropout = tf.keras.layers.Dropout(rate=config['params']['dropout'])
-        self.output_layer = tf.keras.layers.Dense(units=config['params']['output_size'])
-
-    def call(self, inputs):
-        x = self.embedding(inputs)
-        x = tf.expand_dims(x, -1)
-        x = [tf.squeeze(conv(x), axis=2) for conv in self.convs]
-        x = [tf.reduce_max(input_tensor=i, axis=1) for i in x]
-        x = tf.concat(x, axis=1)
-        for fc in self.fc_layers:
-            x = self.dropout(fc(x))
-        x = self.output_layer(x)
-        return x
-
-class RNNEncoder(tf.keras.Model):
+class RNNEncoder(nn.Module):
     def __init__(self, config):
         super(RNNEncoder, self).__init__()
-        logging.info(f"RNN encoder initialized with configuration: {config['params']}")
-        self.config=config['params']
+        self.config = config['params']
         self.embedding_size = self.config['embedding_size']
         self.hidden_size = self.config['state_size']
         self.output_size = self.config['output_size']
@@ -226,69 +192,68 @@ class RNNEncoder(tf.keras.Model):
         self.vocab_size = self.config['vocab_size']
 
         # Embedding layer
-        self.embedding = layers.Embedding(input_dim=self.vocab_size, output_dim=self.embedding_size)
+        self.embedding = nn.Embedding(num_embeddings=self.vocab_size, embedding_dim=self.embedding_size)
 
         # RNN cell
         if self.cell_type == 'rnn':
-            self.rnn = layers.SimpleRNN(self.hidden_size, 
-                                        return_sequences=True, 
-                                        return_state=True, 
-                                        dropout=self.recurrent_dropout, 
-                                        recurrent_initializer=self.recurrent_initializer, 
-                                        use_bias=self.use_bias)
+            self.rnn = nn.RNN(self.embedding_size, 
+                              self.hidden_size, 
+                              num_layers=self.num_layers, 
+                              bidirectional=self.bidirectional, 
+                              dropout=self.recurrent_dropout, 
+                              batch_first=True)
         elif self.cell_type == 'lstm':
-            self.rnn = layers.LSTM(self.hidden_size, 
-                                   return_sequences=True, 
-                                   return_state=True, 
-                                   dropout=self.recurrent_dropout, 
-                                   recurrent_initializer=self.recurrent_initializer, 
-                                   unit_forget_bias=self.unit_forget_bias, 
-                                   use_bias=self.use_bias)
+            self.rnn = nn.LSTM(self.embedding_size, 
+                               self.hidden_size, 
+                               num_layers=self.num_layers, 
+                               bidirectional=self.bidirectional, 
+                               dropout=self.recurrent_dropout, 
+                               batch_first=True)
         elif self.cell_type == 'gru':
-            self.rnn = layers.GRU(self.hidden_size, 
-                                  return_sequences=True, 
-                                  return_state=True, 
-                                  dropout=self.recurrent_dropout, 
-                                  recurrent_initializer=self.recurrent_initializer, 
-                                  use_bias=self.use_bias)
+            self.rnn = nn.GRU(self.embedding_size, 
+                              self.hidden_size, 
+                              num_layers=self.num_layers, 
+                              bidirectional=self.bidirectional, 
+                              dropout=self.recurrent_dropout, 
+                              batch_first=True)
 
-        self.dropout = layers.Dropout(rate=config.get('dropout', 0.0))
+        self.dropout = nn.Dropout(p=config.get('dropout', 0.0))
 
         # Fully connected layers
-        self.fc_layers = []
+        self.fc_layers = nn.ModuleList()
         if self.num_fc_layers > 0:
             input_dim = self.hidden_size * (2 if self.bidirectional else 1)
             for _ in range(self.num_fc_layers):
-                self.fc_layers.append(layers.Dense(self.output_size))
+                self.fc_layers.append(nn.Linear(input_dim, self.output_size))
                 input_dim = self.output_size
 
         # Regularization
         if self.norm:
-            self.regularizer = layers.LayerNormalization()
+            self.regularizer = nn.LayerNorm(self.output_size)
         else:
             self.regularizer = None
 
-    def call(self, x,training=False):
+    def call(self, x):
         x = self.embedding(x)
         
         if self.cell_type == 'lstm':
-            output, hidden_state, cell_state = self.rnn(x,training=training)
+            output, (hidden_state, cell_state) = self.rnn(x)
         else:
-            output, hidden_state = self.rnn(x,training=training)
+            output, hidden_state = self.rnn(x)
         
-        output = self.dropout(output,training=training)
+        output = self.dropout(output)
 
         # Apply representation type
         if self.representation == 'dense':
             output = output
         elif self.representation == 'sparse':
-            output = tf.sparse.to_dense(output)
+            output = torch.sparse.FloatTensor(output)
 
         # Reduce output
         if self.reduce_output == 'sum':
-            output = tf.reduce_sum(output, axis=1)
+            output = torch.sum(output, dim=1)
         elif self.reduce_output == 'mean':
-            output = tf.reduce_mean(output, axis=1)
+            output = torch.mean(output, dim=1)
         elif self.reduce_output == 'last':
             output = output[:, -1, :]
 
@@ -300,7 +265,7 @@ class RNNEncoder(tf.keras.Model):
         if self.regularizer:
             output = self.regularizer(output)
 
-        return output, hidden_state
+        return output
     
     def encode_data(self, data):
         encoded_data = self.call(data)
@@ -324,7 +289,7 @@ class CategoricalEncoder:
                 le = LabelEncoder()
                 le.fit(X[column])
                 self.encoder[column] = le
-    
+
     def transform(self, X):
         if self.encoding_type == 'onehot':
             return pd.DataFrame(self.encoder.transform(X), columns=self.encoder.get_feature_names_out())
@@ -338,7 +303,6 @@ class CategoricalEncoder:
         self.fit(X)
         return self.transform(X)
     
-# Numerical Encoder Class
 class NumericalEncoder:
     def _init_(self, config):
         self.config = config['preprocessing']['numerical']
@@ -365,7 +329,30 @@ class NumericalEncoder:
             data[name] = scaler.transform(data[[name]])
         return data
 
-# Categorical Decoder Class
+class Combiner(nn.Module):
+    def __init__(self, config):
+        super(Combiner, self).__init__()
+        self.config = config
+        self.combiner_type = config['combiner']['type']
+        self.output_size = config['combiner']['output_size']
+
+        if self.combiner_type == 'concat':
+            input_size = sum([feature['params']['output_size'] for feature in config['input_features']])
+            self.combiner = nn.Linear(input_size, self.output_size)
+        elif self.combiner_type == 'sum':
+            input_size = config['input_features'][0]['params']['output_size']
+            self.combiner = nn.Linear(input_size, self.output_size)
+        else:
+            raise ValueError(f"Unsupported combiner type: {self.combiner_type}")
+
+    def forward(self, encoder_outputs):
+        if self.combiner_type == 'concat':
+            combined_output = torch.cat(encoder_outputs, dim=-1)
+        elif self.combiner_type == 'sum':
+            combined_output = torch.sum(torch.stack(encoder_outputs), dim=0)
+            
+        return self.combiner(combined_output)
+    
 class CategoricalDecoder:
     def _init_(self, encoding_type='onehot'):
         if encoding_type not in ['onehot', 'label']:
@@ -389,7 +376,6 @@ class CategoricalDecoder:
                 transformed_data[column] = self.encoder[column].inverse_transform(X[column])
             return transformed_data
 
-#NumericalDecoder
 class NumericalDecoder:
     def _init_(self, config):
         self.config = config['preprocessing']['numerical']
@@ -404,92 +390,19 @@ class NumericalDecoder:
             data[name] = scaler.inverse_transform(data[[name]])
         return data
 
-class RNNDecoder(tf.keras.layers.Layer):
-    def __init__(self, config):
-        super(RNNDecoder, self).__init__()
-        self.embedding = tf.keras.layers.Embedding(config['decoder']['vocab_size'], config['decoder']['embedding_size'])
-        self.lstm = tf.keras.layers.LSTM(config['decoder']['hidden_size'], return_sequences=True, return_state=True)
-        self.fc = tf.keras.layers.Dense(config['decoder']['vocab_size'])
-        self.dropout = tf.keras.layers.Dropout(config['decoder']['dropout'])
-
-    def call(self, x, hidden, training=False):
-        x = self.embedding(x)
-        x, state_h, state_c = self.lstm(x, initial_state=hidden, training=training)
-        x = self.dropout(x, training=training)
-        x = self.fc(x)
-        return x, [state_h, state_c]
-class Combiner(tf.keras.layers.Layer):
-    def __init__(self, config):
-        super(Combiner, self).__init__()
-        self.config = config
-        self.combiner_type = config['combiner']['type']
-        self.output_size = config['combiner']['output_size']
-
-        if self.combiner_type == 'concat':
-            input_size = sum([feature['params']['output_size'] for feature in config['input_features']])
-            self.combiner = tf.keras.layers.Dense(self.output_size)
-        elif self.combiner_type == 'sum':
-            input_size = config['input_features'][0]['params']['output_size']
-            self.combiner = tf.keras.layers.Dense(self.output_size)
-        else:
-            raise ValueError(f"Unsupported combiner type: {self.combiner_type}")
-
-    def call(self, encoder_outputs):
-        if self.combiner_type == 'concat':
-            combined_output = tf.concat(encoder_outputs, axis=-1)
-        elif self.combiner_type == 'sum':
-            combined_output = tf.reduce_sum(tf.stack(encoder_outputs), axis=0)
-            
-        return self.combiner(combined_output)
-    
-class ModelArch(tf.keras.Model):
-    def __init__(self, config):
-        super(ModelArch, self).__init__()
-        self.encoders = []
-
-        for feature in config['input_features']:
-            if feature['encoder'] == 'rnn':
-                self.encoders.append(RNNEncoder(feature))
-            elif feature['encoders']=='stacked_cnn':
-                self.encoders.append(StackedCNN(feature))
-
-            elif feature['encoder'] == 'parallel_cnn':
-                self.encoders.append(ParallelCNN(feature))
-                
-                
-            # Add other encoders here as needed
-
-        self.combiner = Combiner(config)
-        self.decoder = RNNDecoder(config)
-        self.config = config
-
-    def call(self, encoder_inputs, decoder_input, training=False):
-        encoder_outputs = []
-
-        for encoder, input in zip(self.encoders, encoder_inputs):
-            encoder_outputs.append(encoder(input, training=training))
-
-        combined_output = self.combiner(encoder_outputs)
-        
-        # Initialize the hidden state for the decoder
-        batch_size = tf.shape(combined_output)[0]
-        hidden = [tf.zeros((batch_size, self.config['decoder']['hidden_size'])),
-                  tf.zeros((batch_size, self.config['decoder']['hidden_size']))]
-        
-        decoder_output, _ = self.decoder(decoder_input, hidden, training=training)
-        return decoder_output
+ 
 class Model:
     def __init__(self, config):
         self.config = config
         self.MODEL = "cardiffnlp/twitter-roberta-base-sentiment"
         self.tokenizer = AutoTokenizer.from_pretrained(self.MODEL)
-        self.model = TFAutoModelForSequenceClassification.from_pretrained(self.MODEL)
+        self.model = AutoModelForSequenceClassification.from_pretrained(self.MODEL)
 
     def polarity_scores_roberta(self, example):
-        encoded_text = self.tokenizer(example, return_tensors='tf')
-        output = self.model(encoded_text)
-        scores = output.logits[0].numpy()
-        scores = softmax(scores)
+        encoded_text = self.tokenizer(example, return_tensors='pt')
+        output = self.model(**encoded_text)
+        scores = output.logits[0].detach().numpy()
+        scores = F.softmax(torch.tensor(scores), dim=-1).numpy()
         scores_dict = {
             'roberta_neg': scores[0],
             'roberta_neu': scores[1],
@@ -515,10 +428,61 @@ class Model:
         for text, scores in results:
             table.add_row(text, f"{scores['roberta_neg']:.4f}", f"{scores['roberta_neu']:.4f}", f"{scores['roberta_pos']:.4f}")
         console = Console()
-        console.print(table)      
+        console.print(table)
+
+# this is just a sample rnn decoder - to check if combiner works - need to add the actual RNNdecoder
+class RNNDecoder(nn.Module):
+    def __init__(self, config):
+        super(RNNDecoder, self).__init__()
+        self.embedding = nn.Embedding(config['decoder']['vocab_size'], config['decoder']['embedding_size'])
+        self.lstm = nn.LSTM(config['decoder']['embedding_size'], config['decoder']['hidden_size'], batch_first=True)
+        self.fc = nn.Linear(config['decoder']['hidden_size'], config['decoder']['vocab_size'])
+        self.dropout = nn.Dropout(config['decoder']['dropout'])
+
+    def forward(self, x, hidden):
+        x = self.embedding(x)
+        x, hidden = self.lstm(x, hidden)
+        x = self.dropout(x)
+        x = self.fc(x)
+        return x, hidden
+    
+
+class ModelArch(nn.Module):
+    def __init__(self, config):
+        super(ModelArch, self).__init__()
+        self.encoders = nn.ModuleList()
+
+        for feature in config['input_features']:
+            if feature['encoder'] == 'rnn':
+                self.encoders.append(RNNEncoder(feature))
+            elif feature['encoder'] == 'parallel_cnn':
+                self.encoders.append(ParallelCNN(feature))
+            # Add other encoders here as needed
+
+        self.combiner = Combiner(config)
+        self.decoder = RNNDecoder(config)
+        self.config = config
+
+    def forward(self, encoder_inputs, decoder_input):
+        encoder_outputs = []
+
+        for encoder, input in zip(self.encoders, encoder_inputs):
+            encoder_outputs.append(encoder(input))
+
+        combined_output = self.combiner(encoder_outputs)
+        
+        # Initialize the hidden state for the decoder
+        batch_size = combined_output.size(0)
+        hidden = (torch.zeros(1, batch_size, self.config['decoder']['hidden_size']).to(combined_output.device),
+                  torch.zeros(1, batch_size, self.config['decoder']['hidden_size']).to(combined_output.device))
+        
+        decoder_output, _ = self.decoder(decoder_input, hidden)
+        return decoder_output
+    
+
 
 def main():
-    config_path = 'modelarch.yaml'
+    config_path = 'config.yaml'
     console = Console()
 
     logging.info("Starting main function")
@@ -555,17 +519,23 @@ def main():
     table.add_row("Validation set", str(len(validation_set)), f"{(sys.getsizeof(validation_set) / (1024 * 1024)):.2f} Mb")
     table.add_row("Test set", str(len(test_set)), f"{(sys.getsizeof(test_set) / (1024 * 1024)):.2f} Mb")
 
+    
     console.print(table)
 
+    
+
     for feature in config['input_features']:
+    
             
         if feature['encoder'] == 'roberta':
             model = Model(config)
             results = model.roberta(test_set,num_samples=5)
             model.print_results(results)
-   
-    model = ModelArch(config)
-    print(model)
+        else:
+            model = ModelArch(config)
+            print(model)
+            
 
 if __name__ == "__main__":
     main()
+

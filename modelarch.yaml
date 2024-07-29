@@ -11,7 +11,7 @@ input_features:
       embedding_size: 100
       state_size: 128
       output_size: 3
-      num_layers: 1
+      num_layers: 2
       bidirectional: true
       cell_type: lstm
       representation: dense
