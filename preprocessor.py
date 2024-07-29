@@ -478,7 +478,7 @@ class ModelArch(tf.keras.Model):
         
         decoder_output, _ = self.decoder(decoder_input, hidden, training=training)
         return decoder_output
-    
+
 class TransformerModel(tf.keras.Model):
     def __init__(self, vocab_size, d_model, num_heads, num_layers, dim_feedforward, max_seq_len, num_classes, dropout=0.1):
         super(TransformerModel, self).__init__()
@@ -600,18 +600,7 @@ class TransformerModel(tf.keras.Model):
                 tgt = layer(tgt, memory, tgt_mask, memory_mask)
             return tgt
 
-    class LayerNormalization(tf.keras.layers.Layer):
-        def __init__(self, parameters_shape, eps=1e-5):
-            super(TransformerModel.LayerNormalization, self).__init__()
-            self.gamma = self.add_weight("gamma", shape=parameters_shape, initializer='ones', trainable=True)
-            self.beta = self.add_weight("beta", shape=parameters_shape, initializer='zeros', trainable=True)
-            self.eps = eps
 
-        def call(self, inputs):
-            mean, variance = tf.nn.moments(inputs, axes=[-1], keepdims=True)
-            std = tf.sqrt(variance + self.eps)
-            y = (inputs - mean) / std
-            return self.gamma * y + self.beta
 class Model:
     def __init__(self, config):
         self.config = config
