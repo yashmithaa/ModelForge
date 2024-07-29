@@ -15,6 +15,9 @@ output_features:
 
 training:
   epochs: 5
+  batch_size: 32
+  optimizer: adam
+  loss: sparse_categorical_crossentropy
 
 preprocessing:
   split:
@@ -29,3 +32,23 @@ preprocessing:
     stemming: false
     tokenization:
       method: word
+
+model:
+  encoder: rnn  # or cnn_parallel, cnn_stacked, rnn
+  params:
+    vocab_size: 5000
+    embedding_size: 128
+    state_size: 64
+    num_layers: 2
+    cell_type: lstm  # or rnn, gru
+    bidirectional: false
+    representation: concat  # or sum, average
+    recurrent_dropout: 0.2
+    recurrent_initializer: glorot_uniform
+    use_bias: true
+    weights_initializer: glorot_uniform
+    unit_forget_bias: true
+    reduce_output: true
+    num_fc_layers: 2
+    norm: batch
+    output_size: 3
