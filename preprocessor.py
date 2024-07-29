@@ -29,6 +29,7 @@ from scipy.special import softmax
 
 from sklearn.preprocessing import OneHotEncoder, StandardScaler, LabelEncoder, MinMaxScaler
 import logging
+from tensorflow.keras.utils import plot_model
 # nltk.download('punkt')
 # nltk.download('stopwords')
 
@@ -267,15 +268,15 @@ class RNNEncoder(tf.keras.Model):
         else:
             self.regularizer = None
 
-    def call(self, x):
+    def call(self, x,training=False):
         x = self.embedding(x)
         
         if self.cell_type == 'lstm':
-            output, hidden_state, cell_state = self.rnn(x)
+            output, hidden_state, cell_state = self.rnn(x,training=training)
         else:
-            output, hidden_state = self.rnn(x)
+            output, hidden_state = self.rnn(x,training=training)
         
-        output = self.dropout(output)
+        output = self.dropout(output,training=training)
 
         # Apply representation type
         if self.representation == 'dense':
@@ -299,7 +300,7 @@ class RNNEncoder(tf.keras.Model):
         if self.regularizer:
             output = self.regularizer(output)
 
-        return output
+        return output, hidden_state
     
     def encode_data(self, data):
         encoded_data = self.call(data)
@@ -403,6 +404,80 @@ class NumericalDecoder:
             data[name] = scaler.inverse_transform(data[[name]])
         return data
 
+class RNNDecoder(tf.keras.layers.Layer):
+    def __init__(self, config):
+        super(RNNDecoder, self).__init__()
+        self.embedding = tf.keras.layers.Embedding(config['decoder']['vocab_size'], config['decoder']['embedding_size'])
+        self.lstm = tf.keras.layers.LSTM(config['decoder']['hidden_size'], return_sequences=True, return_state=True)
+        self.fc = tf.keras.layers.Dense(config['decoder']['vocab_size'])
+        self.dropout = tf.keras.layers.Dropout(config['decoder']['dropout'])
+
+    def call(self, x, hidden, training=False):
+        x = self.embedding(x)
+        x, state_h, state_c = self.lstm(x, initial_state=hidden, training=training)
+        x = self.dropout(x, training=training)
+        x = self.fc(x)
+        return x, [state_h, state_c]
+class Combiner(tf.keras.layers.Layer):
+    def __init__(self, config):
+        super(Combiner, self).__init__()
+        self.config = config
+        self.combiner_type = config['combiner']['type']
+        self.output_size = config['combiner']['output_size']
+
+        if self.combiner_type == 'concat':
+            input_size = sum([feature['params']['output_size'] for feature in config['input_features']])
+            self.combiner = tf.keras.layers.Dense(self.output_size)
+        elif self.combiner_type == 'sum':
+            input_size = config['input_features'][0]['params']['output_size']
+            self.combiner = tf.keras.layers.Dense(self.output_size)
+        else:
+            raise ValueError(f"Unsupported combiner type: {self.combiner_type}")
+
+    def call(self, encoder_outputs):
+        if self.combiner_type == 'concat':
+            combined_output = tf.concat(encoder_outputs, axis=-1)
+        elif self.combiner_type == 'sum':
+            combined_output = tf.reduce_sum(tf.stack(encoder_outputs), axis=0)
+            
+        return self.combiner(combined_output)
+    
+class ModelArch(tf.keras.Model):
+    def __init__(self, config):
+        super(ModelArch, self).__init__()
+        self.encoders = []
+
+        for feature in config['input_features']:
+            if feature['encoder'] == 'rnn':
+                self.encoders.append(RNNEncoder(feature))
+            elif feature['encoders']=='stacked_cnn':
+                self.encoders.append(StackedCNN(feature))
+
+            elif feature['encoder'] == 'parallel_cnn':
+                self.encoders.append(ParallelCNN(feature))
+                
+                
+            # Add other encoders here as needed
+
+        self.combiner = Combiner(config)
+        self.decoder = RNNDecoder(config)
+        self.config = config
+
+    def call(self, encoder_inputs, decoder_input, training=False):
+        encoder_outputs = []
+
+        for encoder, input in zip(self.encoders, encoder_inputs):
+            encoder_outputs.append(encoder(input, training=training))
+
+        combined_output = self.combiner(encoder_outputs)
+        
+        # Initialize the hidden state for the decoder
+        batch_size = tf.shape(combined_output)[0]
+        hidden = [tf.zeros((batch_size, self.config['decoder']['hidden_size'])),
+                  tf.zeros((batch_size, self.config['decoder']['hidden_size']))]
+        
+        decoder_output, _ = self.decoder(decoder_input, hidden, training=training)
+        return decoder_output
 class Model:
     def __init__(self, config):
         self.config = config
@@ -443,7 +518,7 @@ class Model:
         console.print(table)      
 
 def main():
-    config_path = 'pcnn.yaml'
+    config_path = 'modelarch.yaml'
     console = Console()
 
     logging.info("Starting main function")
@@ -480,35 +555,17 @@ def main():
     table.add_row("Validation set", str(len(validation_set)), f"{(sys.getsizeof(validation_set) / (1024 * 1024)):.2f} Mb")
     table.add_row("Test set", str(len(test_set)), f"{(sys.getsizeof(test_set) / (1024 * 1024)):.2f} Mb")
 
-    
     console.print(table)
 
-    
-
     for feature in config['input_features']:
-        if feature['encoder'] == 'parallel_cnn':
-            encoder = ParallelCNN(feature)
             
         if feature['encoder'] == 'roberta':
             model = Model(config)
             results = model.roberta(test_set,num_samples=5)
             model.print_results(results)
-            
-        if feature['encoder'] == 'stacked_cnn':
-            encoder = StackedCNN(feature)
-            
-        if feature['encoder'] == 'rnn':
-            encoder = RNNEncoder(feature)
-            # Just for verification
-            example_data = tf.random.uniform((32, 10), dtype=tf.int32, maxval=feature['params']['vocab_size'])
-            encoded_data = encoder.encode_data(example_data)
-            print("Encoded Data:")
-            print(encoded_data)
-
-    print(encoder)
-    
-
-
+   
+    model = ModelArch(config)
+    print(model)
 
 if __name__ == "__main__":
     main()

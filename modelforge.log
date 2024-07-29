@@ -1,0 +1,13 @@
+2024-07-29 13:07:59,521 - INFO - Starting main function
+2024-07-29 13:07:59,521 - INFO - Loading config from modelarch.yaml
+2024-07-29 13:07:59,537 - INFO - Config loaded successfully
+2024-07-29 13:07:59,537 - INFO - Loading config from modelarch.yaml
+2024-07-29 13:07:59,537 - INFO - Config loaded successfully
+2024-07-29 13:07:59,595 - INFO - Loading dataset from dataset.csv
+2024-07-29 13:07:59,687 - INFO - Dataset loaded successfully
+2024-07-29 13:07:59,687 - INFO - Cleaning data
+2024-07-29 13:07:59,734 - INFO - Data cleaned successfully
+2024-07-29 13:07:59,739 - INFO - Preprocessing dataset
+2024-07-29 13:08:01,968 - INFO - Saving datasets to HDF5 files
+2024-07-29 13:08:04,230 - INFO - Data split successfully
+2024-07-29 13:08:04,272 - INFO - RNN encoder initialized with configuration: {'embedding_size': 100, 'state_size': 128, 'output_size': 3, 'num_layers': 1, 'bidirectional': True, 'cell_type': 'lstm', 'representation': 'dense', 'recurrent_dropout': 0.2, 'recurrent_initializer': 'glorot_uniform', 'use_bias': True, 'unit_forget_bias': True, 'weights_initializer': 'glorot_uniform', 'reduce_output': 'mean', 'num_fc_layers': 1, 'norm': True, 'vocab_size': 10000}
