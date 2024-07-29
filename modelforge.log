@@ -1,0 +1,12 @@
+2024-07-29 18:03:43,288 - INFO - Starting main function
+2024-07-29 18:03:43,288 - INFO - Loading config from transformer.yaml
+2024-07-29 18:03:43,288 - INFO - Config loaded successfully
+2024-07-29 18:03:43,288 - INFO - Loading config from transformer.yaml
+2024-07-29 18:03:43,288 - INFO - Config loaded successfully
+2024-07-29 18:03:43,313 - INFO - Loading dataset from dataset.csv
+2024-07-29 18:03:43,329 - INFO - Dataset loaded successfully
+2024-07-29 18:03:43,329 - INFO - Cleaning data
+2024-07-29 18:03:43,344 - INFO - Data cleaned successfully
+2024-07-29 18:03:43,348 - INFO - Preprocessing dataset
+2024-07-29 18:03:45,455 - INFO - Saving datasets to HDF5 files
+2024-07-29 18:03:47,310 - INFO - Data split successfully
