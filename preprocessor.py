@@ -518,7 +518,12 @@ class Model:
         console.print(table)      
 
 def main():
-    config_path = 'modelarch.yaml'
+    if len(sys.argv) != 2:
+        print("Usage: python script.py <config_path>")
+        sys.exit(1)
+
+    config_path = sys.argv[1]
+    #config_path = 'modelarch.yaml'
     console = Console()
 
     logging.info("Starting main function")
@@ -563,9 +568,9 @@ def main():
             model = Model(config)
             results = model.roberta(test_set,num_samples=5)
             model.print_results(results)
-   
-    model = ModelArch(config)
-    print(model)
+        else:
+            model = ModelArch(config)
+            print(model)
 
 if __name__ == "__main__":
     main()

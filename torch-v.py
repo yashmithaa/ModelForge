@@ -24,14 +24,6 @@ from torch.nn.functional import softmax
 
 from tqdm import tqdm
 
-from sklearn.metrics import accuracy_score, precision_score, recall_score
-
-
-import tensorflow as tf
-from tensorflow.keras import layers
-from tensorflow.keras import initializers
-from scipy.special import softmax
-
 from sklearn.preprocessing import OneHotEncoder, StandardScaler, LabelEncoder, MinMaxScaler
 import logging
 
@@ -482,7 +474,12 @@ class ModelArch(nn.Module):
 
 
 def main():
-    config_path = 'config.yaml'
+    if len(sys.argv) != 2:
+        print("Usage: python script.py <config_path>")
+        sys.exit(1)
+
+    config_path = sys.argv[1]
+    #config_path = 'config.yaml'
     console = Console()
 
     logging.info("Starting main function")
@@ -525,8 +522,6 @@ def main():
     
 
     for feature in config['input_features']:
-    
-            
         if feature['encoder'] == 'roberta':
             model = Model(config)
             results = model.roberta(test_set,num_samples=5)
