@@ -478,6 +478,140 @@ class ModelArch(tf.keras.Model):
         
         decoder_output, _ = self.decoder(decoder_input, hidden, training=training)
         return decoder_output
+    
+class TransformerModel(tf.keras.Model):
+    def __init__(self, vocab_size, d_model, num_heads, num_layers, dim_feedforward, max_seq_len, num_classes, dropout=0.1):
+        super(TransformerModel, self).__init__()
+        self.embedding = tf.keras.layers.Embedding(vocab_size, d_model)
+        self.positional_encoding = self.PositionalEncoding(d_model, max_seq_len)
+        self.encoder = self.TransformerEncoder(num_layers, d_model, num_heads, dim_feedforward, dropout)
+        self.decoder = self.TransformerDecoder(num_layers, d_model, num_heads, dim_feedforward, dropout)
+        self.fc = tf.keras.layers.Dense(num_classes)
+
+    def call(self, src, tgt, src_mask=None, tgt_mask=None):
+        src = self.embedding(src)
+        src = self.positional_encoding(src)
+        memory = self.encoder(src, src_mask)
+
+        tgt = self.embedding(tgt)
+        tgt = self.positional_encoding(tgt)
+        output = self.decoder(tgt, memory, tgt_mask=tgt_mask, memory_mask=src_mask)
+
+        output = tf.reduce_mean(output, axis=1)  # Aggregate over sequence length
+        output = self.fc(output)
+        return output
+
+    class PositionalEncoding(tf.keras.layers.Layer):
+        def __init__(self, d_model, max_len=5000):
+            super(TransformerModel.PositionalEncoding, self).__init__()
+            self.encoding = self.positional_encoding(d_model, max_len)
+
+        def positional_encoding(self, d_model, max_len):
+            angle_rads = self.get_angles(
+                tf.range(max_len, dtype=tf.float32)[:, tf.newaxis],
+                tf.range(d_model, dtype=tf.float32)[tf.newaxis, :],
+                d_model
+            )
+            sines = tf.math.sin(angle_rads[:, 0::2])
+            cosines = tf.math.cos(angle_rads[:, 1::2])
+
+            angle_rads = tf.concat([sines, cosines], axis=-1)
+            pos_encoding = angle_rads[tf.newaxis, ...]
+            return tf.cast(pos_encoding, dtype=tf.float32)
+
+        def get_angles(self, pos, i, d_model):
+            angle_rates = 1 / tf.pow(10000, (2 * (i // 2)) / tf.cast(d_model, tf.float32))
+            return pos * angle_rates
+
+        def call(self, x):
+            return x + self.encoding[:, :tf.shape(x)[1], :]
+
+    class TransformerEncoderLayer(tf.keras.layers.Layer):
+        def __init__(self, d_model, num_heads, dim_feedforward, dropout=0.1):
+            super(TransformerModel.TransformerEncoderLayer, self).__init__()
+            self.self_attn = tf.keras.layers.MultiHeadAttention(num_heads=num_heads, key_dim=d_model, dropout=dropout)
+            self.ffn = tf.keras.Sequential([
+                tf.keras.layers.Dense(dim_feedforward, activation='relu'),
+                tf.keras.layers.Dense(d_model)
+            ])
+            self.norm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+            self.norm2 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+            self.dropout1 = tf.keras.layers.Dropout(dropout)
+            self.dropout2 = tf.keras.layers.Dropout(dropout)
+
+        def call(self, src, mask=None):
+            attn_output = self.self_attn(src, src, attention_mask=mask)
+            attn_output = self.dropout1(attn_output)
+            out1 = self.norm1(src + attn_output)
+
+            ffn_output = self.ffn(out1)
+            ffn_output = self.dropout2(ffn_output)
+            out2 = self.norm2(out1 + ffn_output)
+            return out2
+
+    class TransformerEncoder(tf.keras.layers.Layer):
+        def __init__(self, num_layers, d_model, num_heads, dim_feedforward, dropout):
+            super(TransformerModel.TransformerEncoder, self).__init__()
+            self.layers = [TransformerModel.TransformerEncoderLayer(d_model, num_heads, dim_feedforward, dropout) for _ in range(num_layers)]
+
+        def call(self, src, mask=None):
+            for layer in self.layers:
+                src = layer(src, mask)
+            return src
+
+    class TransformerDecoderLayer(tf.keras.layers.Layer):
+        def __init__(self, d_model, num_heads, dim_feedforward, dropout):
+            super(TransformerModel.TransformerDecoderLayer, self).__init__()
+            self.self_attn = tf.keras.layers.MultiHeadAttention(num_heads=num_heads, key_dim=d_model, dropout=dropout)
+            self.multihead_attn = tf.keras.layers.MultiHeadAttention(num_heads=num_heads, key_dim=d_model, dropout=dropout)
+            self.ffn = tf.keras.Sequential([
+                tf.keras.layers.Dense(dim_feedforward, activation='relu'),
+                tf.keras.layers.Dense(d_model)
+            ])
+            self.layer_norm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+            self.layer_norm2 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+            self.layer_norm3 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+            self.dropout = tf.keras.layers.Dropout(dropout)
+
+        def call(self, tgt, memory, tgt_mask=None, memory_mask=None):
+            # Self-attention
+            attn_output = self.self_attn(tgt, tgt, attention_mask=tgt_mask)
+            attn_output = self.dropout(attn_output)
+            out1 = self.layer_norm1(tgt + attn_output)
+
+            # Multi-head attention
+            attn_output2 = self.multihead_attn(out1, memory, attention_mask=memory_mask)
+            attn_output2 = self.dropout(attn_output2)
+            out2 = self.layer_norm2(out1 + attn_output2)
+
+            # Feed-forward network
+            ffn_output = self.ffn(out2)
+            ffn_output = self.dropout(ffn_output)
+            out3 = self.layer_norm3(out2 + ffn_output)
+            return out3
+
+    class TransformerDecoder(tf.keras.layers.Layer):
+        def __init__(self, num_layers, d_model, num_heads, dim_feedforward, dropout):
+            super(TransformerModel.TransformerDecoder, self).__init__()
+            self.layers = [TransformerModel.TransformerDecoderLayer(d_model, num_heads, dim_feedforward, dropout) for _ in range(num_layers)]
+
+        def call(self, tgt, memory, tgt_mask=None, memory_mask=None):
+            for layer in self.layers:
+                tgt = layer(tgt, memory, tgt_mask, memory_mask)
+            return tgt
+
+    class LayerNormalization(tf.keras.layers.Layer):
+        def __init__(self, parameters_shape, eps=1e-5):
+            super(TransformerModel.LayerNormalization, self).__init__()
+            self.gamma = self.add_weight("gamma", shape=parameters_shape, initializer='ones', trainable=True)
+            self.beta = self.add_weight("beta", shape=parameters_shape, initializer='zeros', trainable=True)
+            self.eps = eps
+
+        def call(self, inputs):
+            mean, variance = tf.nn.moments(inputs, axes=[-1], keepdims=True)
+            std = tf.sqrt(variance + self.eps)
+            y = (inputs - mean) / std
+            return self.gamma * y + self.beta
 class Model:
     def __init__(self, config):
         self.config = config
@@ -568,6 +702,16 @@ def main():
             model = Model(config)
             results = model.roberta(test_set,num_samples=5)
             model.print_results(results)
+        elif feature['encoder'] == 'transformer':
+            model = TransformerModel(vocab_size=config['model']['vocab_size'],
+                    d_model=config['model']['d_model'],
+                    num_heads=config['model']['num_heads'],
+                    num_layers=config['model']['num_layers'],
+                    dim_feedforward=config['model']['dim_feedforward'],
+                    max_seq_len=config['model']['max_seq_len'],
+                    num_classes=config['model']['num_classes'],
+                    dropout=config['model']['dropout'])
+            print(model)
         else:
             model = ModelArch(config)
             print(model)

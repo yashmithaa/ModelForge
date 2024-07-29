@@ -440,10 +440,7 @@ class RNNDecoder(nn.Module):
     
 class TransformerModel(nn.Module):
     def __init__(self, vocab_size, d_model, num_heads, num_layers, dim_feedforward, max_seq_len, num_classes, dropout=0.1):
-        
         super().__init__()
-        
-
         self.embedding = nn.Embedding(vocab_size, d_model)
         self.positional_encoding = self.PositionalEncoding(d_model, max_seq_len)
         self.encoder = self.TransformerEncoder(num_layers, d_model, num_heads, dim_feedforward, dropout)

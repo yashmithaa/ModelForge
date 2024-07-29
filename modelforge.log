@@ -1,13 +1,12 @@
-2024-07-29 16:17:00,975 - INFO - Starting main function
-2024-07-29 16:17:00,975 - INFO - Loading config from modelarch.yaml
-2024-07-29 16:17:00,978 - INFO - Config loaded successfully
-2024-07-29 16:17:00,978 - INFO - Loading config from modelarch.yaml
-2024-07-29 16:17:00,978 - INFO - Config loaded successfully
-2024-07-29 16:17:01,014 - INFO - Loading dataset from dataset.csv
-2024-07-29 16:17:01,036 - INFO - Dataset loaded successfully
-2024-07-29 16:17:01,036 - INFO - Cleaning data
-2024-07-29 16:17:01,036 - INFO - Data cleaned successfully
-2024-07-29 16:17:01,048 - INFO - Preprocessing dataset
-2024-07-29 16:17:03,736 - INFO - Saving datasets to HDF5 files
-2024-07-29 16:17:05,548 - INFO - Data split successfully
-2024-07-29 16:17:05,582 - INFO - RNN encoder initialized with configuration: {'embedding_size': 100, 'state_size': 128, 'output_size': 3, 'num_layers': 2, 'bidirectional': True, 'cell_type': 'lstm', 'representation': 'dense', 'recurrent_dropout': 0.2, 'recurrent_initializer': 'glorot_uniform', 'use_bias': True, 'unit_forget_bias': True, 'weights_initializer': 'glorot_uniform', 'reduce_output': 'mean', 'num_fc_layers': 1, 'norm': True, 'vocab_size': 10000}
+2024-07-29 18:03:43,288 - INFO - Starting main function
+2024-07-29 18:03:43,288 - INFO - Loading config from transformer.yaml
+2024-07-29 18:03:43,288 - INFO - Config loaded successfully
+2024-07-29 18:03:43,288 - INFO - Loading config from transformer.yaml
+2024-07-29 18:03:43,288 - INFO - Config loaded successfully
+2024-07-29 18:03:43,313 - INFO - Loading dataset from dataset.csv
+2024-07-29 18:03:43,329 - INFO - Dataset loaded successfully
+2024-07-29 18:03:43,329 - INFO - Cleaning data
+2024-07-29 18:03:43,344 - INFO - Data cleaned successfully
+2024-07-29 18:03:43,348 - INFO - Preprocessing dataset
+2024-07-29 18:03:45,455 - INFO - Saving datasets to HDF5 files
+2024-07-29 18:03:47,310 - INFO - Data split successfully
