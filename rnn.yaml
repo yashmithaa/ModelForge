@@ -1,0 +1,50 @@
+dataset:
+  path: "spanish.csv"
+  format: csv
+  delimiter: "\t"
+
+input_features:
+  - name: source_text
+    type: text
+    encoder: rnn
+    dropout: true
+
+output_features:
+  - name: target_text
+    type: text
+
+training:
+  batch_size: 64
+  epochs: 10
+  learning_rate: 0.001
+  weights_path: "saved.weights.h5"
+  split:
+    train: 0.7
+    validation: 0.3
+
+preprocessing:
+  split:
+    train: 0.7
+    validation: 0.3
+    random_seed: 42
+  text:
+    vocab_size: 10000
+    lower_case: true
+    remove_punctuation: true
+    tokenization:
+      method: word
+ 
+
+model:
+  embedding_size: 256
+  state_size: 128
+  output_size: 64
+  num_layers: 2
+  bidirectional: false
+  cell_type: lstm
+  representation: dense
+  activation: relu
+  num_fc_layers: 2
+  attention_size: 64
+  dropout: 0.3
+ 
