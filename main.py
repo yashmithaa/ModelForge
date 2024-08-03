@@ -32,25 +32,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 # nltk.download('punkt')
 # nltk.download('stopwords')
-
-import torch.optim as optim
-from torch.utils.data import DataLoader, Dataset
-from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import accuracy_score
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report
-import random
-
-from torch.nn.utils.rnn import pad_sequence
-
-import mlflow
-import mlflow.pytorch
-import mlflow.pyfunc
-import subprocess
-import threading
-import time
-import webbrowser
-
-
+logging.basicConfig(filename="logs/modelforge.log", filemode='w',level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 class Loader:
     def __init__(self, config_path):
         self.config = self.load_config(config_path)
@@ -155,41 +137,29 @@ class DataSplitter:
         print("Writing preprocessed validation set to preprocessed-data/dataset.validation.hdf5\n")
 
 class ParallelCNN(nn.Module):
-    def __init__(self, input_feature_config):
+    def __init__(self, config):
         super(ParallelCNN, self).__init__()
-        self.vocab_size = input_feature_config['params']['vocab_size']
-        self.embedding_size = input_feature_config['params']['embedding_size']
-        self.num_filters = input_feature_config['params']['num_filters']
-        self.filter_sizes = input_feature_config['params']['filter_sizes']
-        self.fc_size = input_feature_config['params']['fc_size']
-        self.dropout = input_feature_config['params']['dropout']
-
-        self.embedding = nn.Embedding(self.vocab_size, self.embedding_size)
-
-        self.conv_layers = nn.ModuleList([
-            nn.Conv2d(1, self.num_filters, (fs, self.embedding_size)) for fs in self.filter_sizes
+        self.embedding = nn.Embedding(config['params']['vocab_size'], config['params']['embedding_size'])
+        self.convs = nn.ModuleList([
+            nn.Conv2d(1, config['params']['num_filters'], (k, config['params']['embedding_size']))
+            for k in config['params']['filter_sizes']
         ])
-
-        self.dropout_layer = nn.Dropout(self.dropout)
-
-        # Calculate the output size after the convolution and pooling layers
-        self.conv_output_size = len(self.filter_sizes) * self.num_filters
-
-        self.fc_layers = nn.Sequential(
-            nn.Linear(self.conv_output_size, self.fc_size),
-            nn.ReLU(),
-            nn.Dropout(self.dropout),
-            nn.Linear(self.fc_size, input_feature_config['params']['output_size'])
-        )
+        self.fc_layers = nn.ModuleList([
+            nn.Linear(config['params']['num_filters'] * len(config['params']['filter_sizes']), config['params']['fc_size'])
+            for _ in range(config['params']['num_fc_layers'])
+        ])
+        self.dropout = nn.Dropout(config['params']['dropout'])
+        self.output_layer = nn.Linear(config['params']['fc_size'], config['params']['output_size'])
 
     def forward(self, x):
         x = self.embedding(x).unsqueeze(1)
-        conv_outputs = [F.relu(conv(x)).squeeze(3) for conv in self.conv_layers]
-        pooled_outputs = [F.max_pool1d(output, output.size(2)).squeeze(2) for output in conv_outputs]
-        cat_output = torch.cat(pooled_outputs, 1)
-        cat_output = self.dropout_layer(cat_output)
-        fc_output = self.fc_layers(cat_output)
-        return fc_output
+        x = [F.relu(conv(x)).squeeze(3) for conv in self.convs]
+        x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
+        x = torch.cat(x, 1)
+        for fc in self.fc_layers:
+            x = self.dropout(F.relu(fc(x)))
+        x = self.output_layer(x)
+        return x
     
 class RNNEncoder(nn.Module):
     def __init__(self, config):
@@ -598,198 +568,41 @@ class TransformerModel(nn.Module):
             out = self.gamma * y + self.beta
             return out
         
-
 class ModelArch(nn.Module):
     def __init__(self, config):
         super(ModelArch, self).__init__()
-        self.encoder = ParallelCNN(config['input_features'][0])
-        self.decoder = nn.Linear(config['input_features'][0]['params']['output_size'], config['output_features'][0]['num_classes'])
+        self.encoders = nn.ModuleList()
 
-    def forward(self, x):
-        encoder_output = self.encoder(x)
-        decoder_output = self.decoder(encoder_output)
+        for feature in config['input_features']:
+            if feature['encoder'] == 'rnn':
+                self.encoders.append(RNNEncoder(feature))
+            elif feature['encoder'] == 'parallel_cnn':
+                self.encoders.append(ParallelCNN(feature))
+            # Add other encoders here as needed
+
+        self.combiner = Combiner(config)
+        self.decoder = RNNDecoder(config)
+        self.config = config
+
+    def forward(self, encoder_inputs, decoder_input):
+        encoder_outputs = []
+
+        for encoder, input in zip(self.encoders, encoder_inputs):
+            encoder_outputs.append(encoder(input))
+
+        combined_output = self.combiner(encoder_outputs)
+        
+        # Initialize the hidden state for the decoder
+        batch_size = combined_output.size(0)
+        hidden = (torch.zeros(1, batch_size, self.config['decoder']['hidden_size']).to(combined_output.device),
+                  torch.zeros(1, batch_size, self.config['decoder']['hidden_size']).to(combined_output.device))
+        
+        decoder_output, _ = self.decoder(decoder_input, hidden)
         return decoder_output
     
-class TextDataset(Dataset):
-    def __init__(self, texts, labels, vocab, config):
-        self.texts = texts
-        self.labels = labels
-        self.vocab = vocab
-        self.config = config
 
-    def __len__(self):
-        return len(self.texts)
-
-    def __getitem__(self, idx):
-        text = self.texts[idx]
-        label = self.labels[idx]
-        text_tokens = [self.vocab.get(token, self.vocab["<UNK>"]) for token in text.split()]
-        text_tensor = torch.tensor(text_tokens, dtype=torch.long)
-        label_tensor = torch.tensor(label, dtype=torch.long)
-        return text_tensor, label_tensor
-    
-def collate_fn(batch):
-    texts, labels = zip(*batch)
-    texts_padded = pad_sequence(texts, batch_first=True, padding_value=0)
-    labels = torch.stack(labels)
-    return texts_padded, labels
-    
-class ModelTrainer:
-    def __init__(self, model, train_data, val_data, vocab, config):
-        self.model = model
-        self.train_data = train_data
-        self.val_data = val_data
-        self.vocab = vocab
-        self.config = config
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.model.to(self.device)
-        
-        self.criterion = nn.CrossEntropyLoss()
-        self.optimizer = optim.Adam(self.model.parameters(), lr=config['training'][0]['learning_rate'])
-        
-        self.train_loader = DataLoader(TextDataset(train_data[0], train_data[1], vocab, config), batch_size=config['training'][0]['batch_size'], shuffle=True,collate_fn=collate_fn)
-        self.val_loader = DataLoader(TextDataset(val_data[0], val_data[1], vocab, config), batch_size=config['training'][0]['batch_size'], shuffle=False,collate_fn=collate_fn)
-        
-    def train_one_epoch(self):
-        self.model.train()
-        total_loss = 0
-        correct_predictions = 0
-        
-        for texts, labels in self.train_loader:
-            texts, labels = texts.to(self.device), labels.to(self.device)
-            
-            self.optimizer.zero_grad()
-            outputs = self.model(texts)
-            
-            loss = self.criterion(outputs, labels)
-            loss.backward()
-            self.optimizer.step()
-            
-            total_loss += loss.item()
-            _, predicted = torch.max(outputs, 1)
-            correct_predictions += (predicted == labels).sum().item()
-        
-        return total_loss / len(self.train_loader), correct_predictions / len(self.train_loader.dataset)
-    
-    def validate(self):
-        self.model.eval()
-        total_loss = 0
-        correct_predictions = 0
-        
-        with torch.no_grad():
-            for texts, labels in self.val_loader:
-                texts, labels = texts.to(self.device), labels.to(self.device)
-                
-                outputs = self.model(texts)
-                
-                loss = self.criterion(outputs, labels)
-                
-                total_loss += loss.item()
-                _, predicted = torch.max(outputs, 1)
-                correct_predictions += (predicted == labels).sum().item()
-        
-        return total_loss / len(self.val_loader), correct_predictions / len(self.val_loader.dataset)
-    
-    def train(self, num_epochs):
-        for epoch in range(num_epochs):
-            train_loss, train_accuracy = self.train_one_epoch()
-            val_loss, val_accuracy = self.validate()
-
-            # Log metrics to MLflow
-            mlflow.log_metric("train_loss", train_loss, step=epoch)
-            mlflow.log_metric("train_accuracy", train_accuracy, step=epoch)
-            mlflow.log_metric("val_loss", val_loss, step=epoch)
-            mlflow.log_metric("val_accuracy", val_accuracy, step=epoch)
-            
-
-            print(f"Epoch {epoch+1}/{num_epochs}")
-            print(f"Train Loss: {train_loss:.4f}, Train Accuracy: {train_accuracy:.4f}")
-            print(f"Val Loss: {val_loss:.4f}, Val Accuracy: {val_accuracy:.4f}")
-    
-class Evaluator:
-    def __init__(self, model, test_texts, test_labels, label_encoder, vocab, device='cpu'):
-        self.model = model
-        self.test_texts = test_texts
-        self.test_labels = test_labels
-        self.label_encoder = label_encoder
-        self.vocab = vocab
-        self.device = device
-
-    def evaluate(self):
-        self.model.eval()  # Set the model to evaluation mode
-        encoded_texts = self.encode_texts(self.test_texts)
-
-                # Pad sequences
-        padded_texts = pad_sequence([torch.tensor(seq) for seq in encoded_texts], batch_first=True, padding_value=self.vocab["<UNK>"])
-
-        with torch.no_grad():
-            inputs = padded_texts.to(self.device)
-            outputs = self.model(inputs)
-            _, predictions = torch.max(outputs, 1)
-        
-        # Decode labels
-        predicted_labels = predictions.cpu().numpy()
-        true_labels = self.test_labels
-
-        accuracy = accuracy_score(true_labels, predicted_labels)
-        precision = precision_score(true_labels, predicted_labels, average='weighted')
-        recall = recall_score(true_labels, predicted_labels, average='weighted')
-        f1 = f1_score(true_labels, predicted_labels, average='weighted')
-
-        
-        
-
-        table = Table(title=f"Results")
-        table.add_column("Metrics", style = "Cyan")
-        table.add_column("Results")
-        
-        table.add_row("Accuracy", str(accuracy))
-        table.add_row("Precision", str(precision))
-        table.add_row("Recall", str(recall))
-        table.add_row("F1 Score", str(f1))
-        console = Console()
-        console.print(table)
-
-        
-        print(classification_report(true_labels, predicted_labels, target_names=self.label_encoder.classes_))
-
-        self.print_samples(self.test_texts, true_labels, predicted_labels)
-
-    def encode_texts(self, texts):
-        encoded_texts = []
-        for text in texts:
-            encoded_text = [self.vocab.get(word, self.vocab["<UNK>"]) for word in text.split()]
-            encoded_texts.append(encoded_text)
-        return encoded_texts
-
-    def print_samples(self, texts, true_labels, predicted_labels, num_samples=3):
-        print("\nSample Predictions:")
-        samples = random.sample(list(zip(texts, true_labels, predicted_labels)), num_samples)
-        for text, true_label, pred_label in samples:
-            print(f"Text: {text}")
-            print(f"Expected: {self.label_encoder.inverse_transform([true_label])[0]}")
-            print(f"Predicted: {self.label_encoder.inverse_transform([pred_label])[0]}\n")
-
-
-def start_mlflow_server():
-    subprocess.run([
-        "mlflow", "server",
-        "--backend-store-uri", "sqlite:///mlflow.db",
-        "--default-artifact-root", "file:./mlruns",
-        "--host", "0.0.0.0"
-    ], check=True)
 
 def main():
-    # Start MLflow server in a background thread
-    server_thread = threading.Thread(target=start_mlflow_server)
-    server_thread.daemon = True
-    server_thread.start()
-
-    # Give the server some time to start
-    time.sleep(10)  # Adjust this sleep time as needed
-
-    webbrowser.open("http://localhost:5000")
-
     if len(sys.argv) != 2:
         print("Usage: python script.py <config_path>")
         sys.exit(1)
@@ -806,15 +619,6 @@ def main():
     print("\nUser specified config file\n")
     pprint(config)
     
-    # Initializing Mlflow and starting a new run
-    mlflow.set_tracking_uri("http://localhost:5000")  # MLflow tracking server URI
-    mlflow.set_experiment("NewsClassificationExperiment")  # Set experiment name
-    
-    with mlflow.start_run() as run:
-        print(f"MLflow Run ID: {run.info.run_id}")
-        mlflow.log_param("config", config_path)
-        mlflow.set_tag("Training Info", "News Classification")
-
     data = loader.load_dataset()
 
     # clean the data
@@ -844,24 +648,6 @@ def main():
     
     console.print(table)
 
-     # Create vocabulary
-    all_text = ' '.join(train_set['text'])
-    all_words = all_text.split()
-    unique_words = list(set(all_words))
-    max_vocab_size = config['input_features'][0]['params']['vocab_size']
-    if len(unique_words) > max_vocab_size:
-        unique_words = unique_words[:max_vocab_size - 1]  # Reserve one index for "<UNK>"
-    vocab = {word: idx + 1 for idx, word in enumerate(unique_words)}
-    vocab["<UNK>"] = 0
-
-        # Prepare data for training
-    label_encoder = LabelEncoder()
-    train_texts = train_set['text'].tolist()
-    train_labels = label_encoder.fit_transform(train_set['category'].tolist())
-    val_texts = validation_set['text'].tolist()
-    val_labels = label_encoder.transform(validation_set['category'].tolist())
-    test_texts = test_set['text'].tolist()
-    test_labels = label_encoder.transform(test_set['category'].tolist())
     
 
     for feature in config['input_features']:
@@ -883,24 +669,9 @@ def main():
             model = ModelArch(config)
             print(model)
 
-        mlflow.log_params(config['input_features'][0]['params'])
-
-    md = Markdown('# Training')
-    console.print(md)
-
-    trainer = ModelTrainer(model, (train_texts, train_labels), (val_texts, val_labels), vocab, config)
-    trainer.train(config['training'][0]['num_epochs']) 
     
-    md = Markdown('# Evaluation Metrics')
-    console.print(md)
-    evaluator = Evaluator(model, test_texts, test_labels, label_encoder, vocab)
-    evaluator.evaluate()
-
-    # Save model using MLflow
-    mlflow.pytorch.log_model(model, "modelforge")
-    
-
-    
+            
 
 if __name__ == "__main__":
     main()
+

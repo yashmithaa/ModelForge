@@ -1,0 +1,42 @@
+dataset:
+  path: "datasets/news-classify.csv" 
+  format: csv 
+  delimiter: "," 
+
+input_features:
+  - name: Text 
+    type: text 
+    encoder: parallel_cnn
+    params:
+      embedding_size: 256
+      num_filters: 256
+      filter_sizes: [3, 4, 5]
+      num_fc_layers: 2
+      vocab_size: 10000
+      fc_size: 256
+      dropout: 0.5
+      output_size: 512
+      
+output_features:
+  - name: category
+    type: Category 
+    num_classes: 5
+    
+training:
+  - learning_rate: 0.001
+    batch_size: 32
+    num_epochs: 15
+
+preprocessing:
+  split:
+    train: 0.7
+    test: 0.2
+    validation: 0.1
+    random_seed: 42 
+  text:
+    lower_case: true 
+    remove_punctuation: true 
+    remove_stopwords: true 
+    stemming: false 
+    tokenization: 
+      method: word 
