@@ -1,0 +1,9 @@
+PyYAML
+pandas
+nltk
+scikit-learn
+numpy
+rich
+transformers
+torch
+tqdm
