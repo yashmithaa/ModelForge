@@ -6,24 +6,16 @@ dataset:
 input_features:
   - name: text
     type: text
-    encoder: rnn
+    encoder: parallel_cnn
     params:
-      embedding_size: 100
-      state_size: 128
+      embedding_size: 256
+      num_filters: 256
+      filter_sizes: [3, 4, 5]
+      num_fc_layers: 2
+      vocab_size: 10000
+      fc_size: 256
+      dropout: 0.5
       output_size: 3
-      num_layers: 2
-      bidirectional: true
-      cell_type: lstm
-      representation: dense
-      recurrent_dropout: 0.2
-      recurrent_initializer: glorot_uniform
-      use_bias: true
-      unit_forget_bias: true
-      weights_initializer: glorot_uniform
-      reduce_output: mean
-      num_fc_layers: 1
-      norm: true
-      vocab_size : 10000
     
 
 output_features:

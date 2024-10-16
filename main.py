@@ -30,8 +30,9 @@ import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-# nltk.download('punkt')
-# nltk.download('stopwords')
+nltk.download('punkt')
+nltk.download('stopwords')
+nltk.download('punkt_tab')
 logging.basicConfig(filename="logs/modelforge.log", filemode='w',level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 class Loader:
     def __init__(self, config_path):
@@ -421,7 +422,6 @@ class Model:
         console = Console()
         console.print(table)
 
-# this is just a sample rnn decoder - to check if combiner works - need to add the actual RNNdecoder
 class RNNDecoder(nn.Module):
     def __init__(self, config):
         super(RNNDecoder, self).__init__()

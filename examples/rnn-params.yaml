@@ -1,5 +1,5 @@
 dataset:
-  path: "dataset.csv"
+  path: "datasets/dataset.csv"
   format: csv
   delimiter: ","
 
@@ -11,7 +11,7 @@ input_features:
       embedding_size: 100
       state_size: 128
       output_size: 3
-      num_layers: 1
+      num_layers: 2
       bidirectional: true
       cell_type: lstm
       representation: dense
@@ -25,10 +25,15 @@ input_features:
       norm: true
       vocab_size : 10000
 
-output_features:
-  - name: sentiment
-    type: category
-    num_classes: 3
+combiner:
+  type: concat
+  output_size: 512
+
+decoder:
+  vocab_size: 10000
+  embedding_size: 256
+  hidden_size: 512
+  dropout: 0.5 
 
 training:
   batch_size: 32
