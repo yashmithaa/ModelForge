@@ -422,7 +422,6 @@ class Model:
         console = Console()
         console.print(table)
 
-# this is just a sample rnn decoder - to check if combiner works - need to add the actual RNNdecoder
 class RNNDecoder(nn.Module):
     def __init__(self, config):
         super(RNNDecoder, self).__init__()

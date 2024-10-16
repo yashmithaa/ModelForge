@@ -41,10 +41,11 @@ Activate the virtual environment
   venv\Scripts\activate
   ```
 - MacOS:
-  `bash
+  ````bash
     source venv/bin/activate
-    `
+    ```
   Install required python packages [Make sure virtual environment is running]
+  ````
 
 ```bash
 pip install -r requirements.txt
@@ -64,8 +65,9 @@ ModelForge/
 │   └── ...         #sample datasets we have worked on
 |
 ├── examples/
-│   ├── class-news.yaml  # Example configuration file for news classificantion
+│   ├── roberta.yaml  # Example configuration file for roberta model
 │   ├── modelarch.yaml   # model architecture
+|   ├── rnn-params.yaml   # rnn encoder-decoder architecture
 │   └── transformer.yaml  # transformer model
 |
 ├── preprocessed_data/  # stores preprocessed data
