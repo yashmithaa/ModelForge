@@ -14,8 +14,6 @@ ModelForge is a powerful and user-friendly platform that simplifies the machine 
 
 ## How it Works
 
-<img src="https://raw.githubusercontent.com/yashmithaa/ModelForge/refs/heads/main/assets/flowchart.png">
-
 - **Load Your Dataset:** Simply provide the path to your dataset CSV file and the corresponding YAML configuration file.
 
 - **Specify Model Requirements:** In the YAML file, define the desired model architecture, input and output features, preprocessing steps, and evaluation metrics.
@@ -41,11 +39,10 @@ Activate the virtual environment
   venv\Scripts\activate
   ```
 - MacOS:
-  ````bash
+  ```bash
     source venv/bin/activate
-    ```
+  ```
   Install required python packages [Make sure virtual environment is running]
-  ````
 
 ```bash
 pip install -r requirements.txt

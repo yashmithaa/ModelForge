@@ -1,12 +1,12 @@
-2024-10-16 14:50:09,416 - INFO - Starting main function
-2024-10-16 14:50:09,416 - INFO - Loading config from examples/modelarch.yaml
-2024-10-16 14:50:09,416 - INFO - Config loaded successfully
-2024-10-16 14:50:09,416 - INFO - Loading config from examples/modelarch.yaml
-2024-10-16 14:50:09,426 - INFO - Config loaded successfully
-2024-10-16 14:50:09,440 - INFO - Loading dataset from datasets/dataset.csv
-2024-10-16 14:50:09,492 - INFO - Dataset loaded successfully
-2024-10-16 14:50:09,492 - INFO - Cleaning data
-2024-10-16 14:50:09,508 - INFO - Data cleaned successfully
-2024-10-16 14:50:09,508 - INFO - Preprocessing dataset
-2024-10-16 14:50:12,050 - INFO - Saving datasets to HDF5 files
-2024-10-16 14:50:14,999 - INFO - Data split successfully
+2024-10-16 21:44:38,907 - INFO - Starting main function
+2024-10-16 21:44:38,907 - INFO - Loading config from examples/rnn-params.yaml
+2024-10-16 21:44:38,938 - INFO - Config loaded successfully
+2024-10-16 21:44:38,938 - INFO - Loading config from examples/rnn-params.yaml
+2024-10-16 21:44:38,949 - INFO - Config loaded successfully
+2024-10-16 21:44:38,967 - INFO - Loading dataset from datasets/dataset.csv
+2024-10-16 21:44:39,002 - INFO - Dataset loaded successfully
+2024-10-16 21:44:39,002 - INFO - Cleaning data
+2024-10-16 21:44:39,010 - INFO - Data cleaned successfully
+2024-10-16 21:44:39,010 - INFO - Preprocessing dataset
+2024-10-16 21:44:41,463 - INFO - Saving datasets to HDF5 files
+2024-10-16 21:44:43,519 - INFO - Data split successfully
