@@ -1,11 +1,12 @@
-2024-10-15 20:36:51,123 - INFO - Starting main function
-2024-10-15 20:36:51,123 - INFO - Loading config from examples/modelarch.yaml
-2024-10-15 20:36:51,130 - INFO - Config loaded successfully
-2024-10-15 20:36:51,130 - INFO - Loading config from examples/modelarch.yaml
-2024-10-15 20:36:51,135 - INFO - Config loaded successfully
-2024-10-15 20:36:51,152 - INFO - Loading dataset from datasets/dataset.csv
-2024-10-15 20:36:51,166 - INFO - Dataset loaded successfully
-2024-10-15 20:36:51,166 - INFO - Cleaning data
-2024-10-15 20:36:51,174 - INFO - Data cleaned successfully
-2024-10-15 20:36:51,176 - INFO - Preprocessing dataset
-2024-10-15 20:36:51,983 - INFO - Saving datasets to HDF5 files
+2024-10-16 13:05:49,258 - INFO - Starting main function
+2024-10-16 13:05:49,258 - INFO - Loading config from examples/roberta.yaml
+2024-10-16 13:05:49,278 - INFO - Config loaded successfully
+2024-10-16 13:05:49,278 - INFO - Loading config from examples/roberta.yaml
+2024-10-16 13:05:49,278 - INFO - Config loaded successfully
+2024-10-16 13:05:49,296 - INFO - Loading dataset from datasets/dataset.csv
+2024-10-16 13:05:49,316 - INFO - Dataset loaded successfully
+2024-10-16 13:05:49,316 - INFO - Cleaning data
+2024-10-16 13:05:49,322 - INFO - Data cleaned successfully
+2024-10-16 13:05:49,325 - INFO - Preprocessing dataset
+2024-10-16 13:05:51,210 - INFO - Saving datasets to HDF5 files
+2024-10-16 13:05:51,376 - INFO - Data split successfully

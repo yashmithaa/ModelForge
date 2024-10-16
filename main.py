@@ -30,8 +30,9 @@ import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-# nltk.download('punkt')
-# nltk.download('stopwords')
+nltk.download('punkt')
+nltk.download('stopwords')
+nltk.download('punkt_tab')
 logging.basicConfig(filename="logs/modelforge.log", filemode='w',level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 class Loader:
     def __init__(self, config_path):
