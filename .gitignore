@@ -8,9 +8,10 @@ env.bak/
 venv.bak/
 
 
-logs/
+
+*.log
 __pycache__/
 *.pyc
 
-preprocessed-data/
+*.hdf5
 *.egg-info/
