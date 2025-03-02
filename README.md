@@ -51,6 +51,10 @@ pip install -r requirements.txt
 To run the file
 
 ```bash
+modelforge run --config path/to/file.yaml
+```
+
+```bash
  python main.py <filename>.yaml
 ```
 
