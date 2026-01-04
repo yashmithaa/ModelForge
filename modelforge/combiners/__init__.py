@@ -1,8 +1,5 @@
-"""
-Combiners for ModelForge.
+# Combiners merge multiple encoder outputs into a single representation.
 
-Combiners merge multiple encoder outputs into a single representation.
-Will contain: Concat, Sum, Transformer
-"""
+from .concat import Combiner
 
-__all__ = []
+__all__ = ["Combiner"]

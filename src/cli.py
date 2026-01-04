@@ -16,7 +16,7 @@ from src.roberta import Model
 from src.transformer import TransformerModel
 from src.modelarch import ModelArch
 
-from utils.logger import setup_logger
+from modelforge.utils.logger import setup_logger
 
 def pipeline(config_path):
     console = Console()

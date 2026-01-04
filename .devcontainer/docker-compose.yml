@@ -1,0 +1,44 @@
+services:
+  modelforge:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+      args:
+        # Use CUDA base image for GPU support, or python:3.11-slim for CPU only
+        VARIANT: "3.11-bullseye"
+    
+    volumes:
+      - ..:/workspace:cached
+      # Persist bash history
+      - modelforge-bashhistory:/commandhistory
+      # Cache pip packages
+      - modelforge-pip-cache:/root/.cache/pip
+    
+    # Overrides default command so things don't shut down after the process ends.
+    command: sleep infinity
+    
+    # Uncomment to connect to the container over network
+    # network_mode: host
+    
+    # Uncomment for GPU support (requires nvidia-docker)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    
+    # Environment variables
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TORCH_HOME=/workspace/.cache/torch
+      - HF_HOME=/workspace/.cache/huggingface
+    
+    # Keep container running
+    stdin_open: true
+    tty: true
+
+volumes:
+  modelforge-bashhistory:
+  modelforge-pip-cache:

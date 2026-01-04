@@ -26,6 +26,30 @@ ModelForge is a powerful and user-friendly platform that simplifies the machine 
 
 ## Getting Started
 
+### Option 1: Dev Container (Recommended) 
+
+The easiest way to get started with a fully configured environment:
+
+1. **Prerequisites:**
+   - Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+   - Install [VS Code](https://code.visualstudio.com/) with the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
+
+2. **Launch:**
+   - Open this folder in VS Code
+   - Press `F1` and select `Dev Containers: Reopen in Container`
+   - Wait for the container to build (first time only)
+   - Start coding! All dependencies are pre-installed.
+
+**Benefits:** Isolated environment, GPU support, reproducible across all machines.
+OR try
+```
+bash
+docker compose -f .devcontainer/docker-compose.yml exec modelforge bash
+python -m modelforge.cli train --config examples/config.yaml
+```
+
+### Option 2: Virtual Environment (Traditional)
+
 Create a virtual environment, run the following command after cloning the repo
 
 ```bash
@@ -38,11 +62,12 @@ Activate the virtual environment
   ```bash
   venv\Scripts\activate
   ```
-- MacOS:
+- MacOS/Linux:
   ```bash
-    source venv/bin/activate
+  source venv/bin/activate
   ```
-  Install required python packages [Make sure virtual environment is running]
+
+Install required python packages [Make sure virtual environment is running]
 
 ```bash
 pip install -r requirements.txt

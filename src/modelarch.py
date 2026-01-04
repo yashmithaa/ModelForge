@@ -2,9 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .encoders import RNNEncoder, ParallelCNN
-from .decoders import RNNDecoder, NumericalDecoder, CategoricalDecoder
-from .combiner import Combiner
+from modelforge.encoders import RNNEncoder, ParallelCNN
+from modelforge.decoders import RNNDecoder, NumericalDecoder, CategoricalDecoder
+from modelforge.combiners import Combiner
 
 class ModelArch(nn.Module):
     def __init__(self, config):

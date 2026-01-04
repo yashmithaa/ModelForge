@@ -1,0 +1,76 @@
+{
+  "name": "ModelForge Development",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "modelforge",
+  "workspaceFolder": "/workspace",
+  
+  // Configure tool-specific properties
+  "customizations": {
+    "vscode": {
+      // Extensions to install in the container
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.black-formatter",
+        "ms-toolsai.jupyter",
+        "GitHub.copilot",
+        "charliermarsh.ruff",
+        "tamasfe.even-better-toml",
+        "redhat.vscode-yaml"
+      ],
+      // VS Code settings
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.linting.enabled": true,
+        "python.linting.pylintEnabled": false,
+        "python.linting.flake8Enabled": false,
+        "python.formatting.provider": "none",
+        "[python]": {
+          "editor.defaultFormatter": "ms-python.black-formatter",
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+          }
+        },
+        "python.testing.pytestEnabled": true,
+        "python.testing.unittestEnabled": false,
+        "files.exclude": {
+          "**/__pycache__": true,
+          "**/*.pyc": true
+        }
+      }
+    }
+  },
+
+  // Commands to run after the container is created
+  "postCreateCommand": "pip install -r requirements.txt && pip install -e .",
+
+  // Commands to run when attaching to the container
+  "postAttachCommand": "git config --global --add safe.directory /workspace",
+
+  // Forward ports for Jupyter, MLflow, etc.
+  "forwardPorts": [8888, 5000, 6006],
+  "portsAttributes": {
+    "8888": {
+      "label": "Jupyter",
+      "onAutoForward": "notify"
+    },
+    "5000": {
+      "label": "MLflow",
+      "onAutoForward": "notify"
+    },
+    "6006": {
+      "label": "TensorBoard",
+      "onAutoForward": "notify"
+    }
+  },
+
+  // Use 'forwardPorts' to make a list of ports inside the container available locally.
+  "remoteUser": "vscode",
+  
+  // Mount the workspace and cache directories
+  "mounts": [
+    "source=${localWorkspaceFolder}/datasets,target=/workspace/datasets,type=bind,consistency=cached",
+    "source=modelforge-pip-cache,target=/root/.cache/pip,type=volume"
+  ]
+}

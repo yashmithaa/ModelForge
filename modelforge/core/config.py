@@ -5,7 +5,7 @@ Uses Pydantic for robust config validation with sensible defaults.
 """
 
 from typing import Dict, List, Any, Optional, Union
-from pydantic import BaseModel, Field, validator, root_validator
+from pydantic import BaseModel, Field, validator, model_validator
 from enum import Enum
 
 
@@ -63,13 +63,13 @@ class DatasetConfig(BaseModel):
         # Ensure splits sum to 1.0.
         return v
     
-    @root_validator
-    def validate_split_sum(cls, values):
+    @model_validator(mode='after')
+    def validate_split_sum(cls, model):
         # Ensure all splits sum to 1.0.
-        total = values.get('train_split', 0) + values.get('validation_split', 0) + values.get('test_split', 0)
+        total = model.train_split + model.validation_split + model.test_split
         if not 0.99 <= total <= 1.01:  # Allow small floating point errors
             raise ValueError(f"Train, validation, and test splits must sum to 1.0, got {total}")
-        return values
+        return model
 
 
 class SchedulerConfig(BaseModel):
