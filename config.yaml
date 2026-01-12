@@ -1,0 +1,71 @@
+dataset:
+  path: datasets/news-classify.csv
+  format: csv
+  train_split: 0.7
+  validation_split: 0.15
+  test_split: 0.15
+  cache: true
+  cache_path: preprocessed-data/dataset.training.hdf5
+
+input_features:
+  - name: text
+    type: text
+    encoder: rnn
+    preprocessing:
+      lower_case: true
+      remove_punctuation: true
+      remove_stopwords: true
+      stemming: false
+      tokenization:
+        method: word
+    encoder_params:
+      vocab_size: 30000
+      embedding_size: 128
+      state_size: 256
+      num_layers: 1
+      bidirectional: true
+      output_size: 256
+
+output_features:
+  - name: sentiment
+    type: category
+    decoder: classifier
+    decoder_params:
+      num_classes: 3
+    loss: cross_entropy
+    metrics: [accuracy, f1]
+
+combiner:
+  type: concat
+  params: {}
+  fc_layers: [256]
+  dropout: 0.3
+
+training:
+  epochs: 5
+  batch_size: 32
+  learning_rate: 0.001
+  optimizer: adam
+  scheduler:
+    type: step
+    step_size: 2
+    gamma: 0.5
+  early_stopping: true
+  early_stopping_patience: 3
+  early_stopping_metric: loss
+  gradient_clip_norm: 1.0
+  gradient_accumulation_steps: 1
+  mixed_precision: false
+  save_checkpoints: true
+  checkpoint_frequency: 1
+  validation_frequency: 1
+  device: null
+  random_seed: 42
+
+preprocessing:
+  text:
+    max_length: 128
+    truncate: true
+
+experiment_name: modelforge_sentiment_example
+output_directory: ./results/sentiment_example
